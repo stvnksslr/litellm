@@ -8101,17 +8101,16 @@
     },
     "bedrock/us-east-1/minimax.minimax-m2.5": {
         "input_cost_per_token": 3e-07,
+        "output_cost_per_token": 1.2e-06,
         "litellm_provider": "bedrock",
         "max_input_tokens": 1000000,
         "max_output_tokens": 8192,
         "max_tokens": 8192,
         "mode": "chat",
-        "source": "https://aws.amazon.com/bedrock/pricing/",
         "supports_function_calling": true,
-        "supports_reasoning": true,
         "supports_system_messages": true,
         "supports_tool_choice": true,
-        "output_cost_per_token": 1.2e-06
+        "source": "https://aws.amazon.com/bedrock/pricing/"
     },
     "bedrock/us-east-1/moonshotai.kimi-k2-thinking": {
         "input_cost_per_token": 6e-07,
@@ -8719,17 +8718,16 @@
     },
     "bedrock/us-west-2/minimax.minimax-m2.5": {
         "input_cost_per_token": 3e-07,
+        "output_cost_per_token": 1.2e-06,
         "litellm_provider": "bedrock",
         "max_input_tokens": 1000000,
         "max_output_tokens": 8192,
         "max_tokens": 8192,
         "mode": "chat",
-        "source": "https://aws.amazon.com/bedrock/pricing/",
         "supports_function_calling": true,
-        "supports_reasoning": true,
         "supports_system_messages": true,
         "supports_tool_choice": true,
-        "output_cost_per_token": 1.2e-06
+        "source": "https://aws.amazon.com/bedrock/pricing/"
     },
     "bedrock/us-west-2/moonshotai.kimi-k2-thinking": {
         "input_cost_per_token": 6e-07,
@@ -22925,14 +22923,13 @@
     },
     "minimax.minimax-m2.5": {
         "input_cost_per_token": 3e-07,
+        "output_cost_per_token": 1.2e-06,
         "litellm_provider": "bedrock_converse",
         "max_input_tokens": 1000000,
         "max_output_tokens": 8192,
         "max_tokens": 8192,
         "mode": "chat",
-        "output_cost_per_token": 1.2e-06,
         "supports_function_calling": true,
-        "supports_reasoning": true,
         "supports_system_messages": true,
         "supports_tool_choice": true,
         "source": "https://aws.amazon.com/bedrock/pricing/"
@@ -35124,12 +35121,12 @@
     },
     "zai.glm-5": {
         "input_cost_per_token": 1e-06,
+        "output_cost_per_token": 3.2e-06,
         "litellm_provider": "bedrock_converse",
         "max_input_tokens": 200000,
         "max_output_tokens": 128000,
         "max_tokens": 128000,
         "mode": "chat",
-        "output_cost_per_token": 3.2e-06,
         "supports_function_calling": true,
         "supports_reasoning": true,
         "supports_system_messages": true,
@@ -35149,20 +35146,6 @@
         "supports_system_messages": true,
         "supports_tool_choice": true,
         "source": "https://aws.amazon.com/bedrock/pricing/"
-    },
-    "zai.glm-5": {
-        "input_cost_per_token": 1e-06,
-        "litellm_provider": "bedrock_converse",
-        "max_input_tokens": 200000,
-        "max_output_tokens": 128000,
-        "max_tokens": 128000,
-        "mode": "chat",
-        "output_cost_per_token": 3.2e-06,
-        "source": "https://aws.amazon.com/bedrock/pricing/",
-        "supports_function_calling": true,
-        "supports_reasoning": true,
-        "supports_system_messages": true,
-        "supports_tool_choice": true
     },
     "zai/glm-5": {
         "cache_creation_input_token_cost": 0,
@@ -39946,20 +39929,6 @@
             }
         ]
     },
-    "zai.glm-5": {
-        "input_cost_per_token": 1e-06,
-        "output_cost_per_token": 3.2e-06,
-        "litellm_provider": "bedrock_converse",
-        "max_input_tokens": 200000,
-        "max_output_tokens": 128000,
-        "max_tokens": 128000,
-        "mode": "chat",
-        "supports_function_calling": true,
-        "supports_reasoning": true,
-        "supports_system_messages": true,
-        "supports_tool_choice": true,
-        "source": "https://aws.amazon.com/bedrock/pricing/"
-    },
     "bedrock/us-east-1/zai.glm-5": {
         "input_cost_per_token": 1e-06,
         "output_cost_per_token": 3.2e-06,
@@ -39984,45 +39953,6 @@
         "mode": "chat",
         "supports_function_calling": true,
         "supports_reasoning": true,
-        "supports_system_messages": true,
-        "supports_tool_choice": true,
-        "source": "https://aws.amazon.com/bedrock/pricing/"
-    },
-    "minimax.minimax-m2.5": {
-        "input_cost_per_token": 3e-07,
-        "output_cost_per_token": 1.2e-06,
-        "litellm_provider": "bedrock_converse",
-        "max_input_tokens": 1000000,
-        "max_output_tokens": 8192,
-        "max_tokens": 8192,
-        "mode": "chat",
-        "supports_function_calling": true,
-        "supports_system_messages": true,
-        "supports_tool_choice": true,
-        "source": "https://aws.amazon.com/bedrock/pricing/"
-    },
-    "bedrock/us-east-1/minimax.minimax-m2.5": {
-        "input_cost_per_token": 3e-07,
-        "output_cost_per_token": 1.2e-06,
-        "litellm_provider": "bedrock",
-        "max_input_tokens": 1000000,
-        "max_output_tokens": 8192,
-        "max_tokens": 8192,
-        "mode": "chat",
-        "supports_function_calling": true,
-        "supports_system_messages": true,
-        "supports_tool_choice": true,
-        "source": "https://aws.amazon.com/bedrock/pricing/"
-    },
-    "bedrock/us-west-2/minimax.minimax-m2.5": {
-        "input_cost_per_token": 3e-07,
-        "output_cost_per_token": 1.2e-06,
-        "litellm_provider": "bedrock",
-        "max_input_tokens": 1000000,
-        "max_output_tokens": 8192,
-        "max_tokens": 8192,
-        "mode": "chat",
-        "supports_function_calling": true,
         "supports_system_messages": true,
         "supports_tool_choice": true,
         "source": "https://aws.amazon.com/bedrock/pricing/"
@@ -40072,5 +40002,29 @@
         "tool_use_system_prompt_tokens": 346,
         "supports_native_structured_output": true,
         "supports_pdf_input": true
+    },
+    "vertex_ai/google/gemma-4-26b-a4b-it-maas": {
+        "input_cost_per_token": 0,
+        "output_cost_per_token": 0,
+        "litellm_provider": "vertex_ai-google_models",
+        "max_input_tokens": 262144,
+        "max_output_tokens": 131072,
+        "max_tokens": 131072,
+        "mode": "chat",
+        "source": "https://cloud.google.com/vertex-ai/generative-ai/docs/maas/google/gemma-4-26b-a4b-it",
+        "supported_regions": [
+            "us-central1"
+        ],
+        "supported_modalities": [
+            "text",
+            "image",
+            "document"
+        ],
+        "supported_output_modalities": [
+            "text"
+        ],
+        "supports_function_calling": true,
+        "supports_tool_choice": true,
+        "supports_vision": true
     }
 }

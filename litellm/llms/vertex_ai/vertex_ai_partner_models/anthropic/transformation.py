@@ -130,6 +130,16 @@ class VertexAIAnthropicConfig(AnthropicConfig):
         if context_management:
             self._add_context_management_beta_headers(beta_set, context_management)
 
+        # AnthropicConfig._update_headers_with_optional_anthropic_beta skips all
+        # auto-beta headers when is_vertex_request=True.  Re-add the structured-output
+        # header here so Vertex AI can route output_format requests correctly.
+        if optional_params.get("output_format") is not None:
+            from litellm.types.llms.anthropic import ANTHROPIC_BETA_HEADER_VALUES
+
+            beta_set.add(
+                ANTHROPIC_BETA_HEADER_VALUES.STRUCTURED_OUTPUT_2025_09_25.value
+            )
+
         extra_headers = optional_params.get("extra_headers") or {}
         anthropic_beta_value = extra_headers.get("anthropic-beta", "")
         if isinstance(anthropic_beta_value, str) and anthropic_beta_value:
@@ -156,28 +166,21 @@ class VertexAIAnthropicConfig(AnthropicConfig):
         drop_params: bool,
     ) -> dict:
         """
-        Override parent method to ensure VertexAI always uses tool-based structured outputs.
-        VertexAI doesn't support the output_format parameter, so we force all models
-        to use the tool-based approach for structured outputs.
-        """
-        # Temporarily override model name to force tool-based approach
-        # This ensures Claude Sonnet 4.5 uses tools instead of output_format
-        original_model = model
-        if "response_format" in non_default_params:
-            model = "claude-3-sonnet-20240229"  # Use a model that will use tool-based approach
+        Delegate to parent AnthropicConfig.map_openai_params without overriding the model.
 
-        # Call parent method with potentially modified model name
-        optional_params = super().map_openai_params(
+        Newer Claude models on Vertex AI (claude-sonnet-4-5 and later) support the native
+        ``output_format`` parameter.  The parent class already knows which model versions
+        support it, so we simply pass through and let that logic decide.
+
+        For models that don't yet support ``output_format`` the parent falls back to the
+        tool-based JSON-extraction approach automatically.
+        """
+        return super().map_openai_params(
             non_default_params=non_default_params,
             optional_params=optional_params,
             model=model,
             drop_params=drop_params,
         )
-
-        # Restore original model name for any other processing
-        model = original_model
-
-        return optional_params
 
     def transform_response(
         self,

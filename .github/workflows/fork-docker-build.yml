@@ -50,12 +50,20 @@ jobs:
         uses: docker/metadata-action@369eb591f429131d6889c46b94e711f089e6ca96 # v5.5.1
         with:
           images: ghcr.io/${{ github.repository }}
+          # Unique, time-ordered tags so every build is immutable and verifiable.
+          # `<UTC datetime>` and `<UTC datetime>-sha-<short sha>` never get
+          # overwritten, so a deploy referencing one of these always pulls the
+          # exact build it names (the mutable branch tag below is kept for
+          # convenience but can be served stale from a cache).
           tags: |
+            type=raw,value={{date 'YYYYMMDD-HHmmss' tz='UTC'}}
+            type=raw,value={{date 'YYYYMMDD-HHmmss' tz='UTC'}}-sha-{{sha}}
             type=sha
             type=ref,event=branch
             type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@0adf9959216b96bec444f325f1e493d4aa344497 # v6.14
         with:
           context: .
@@ -66,3 +74,17 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Build summary
+        run: |
+          {
+            echo "### Fork image pushed :rocket:"
+            echo ""
+            echo "**Commit:** \`${{ github.sha }}\`"
+            echo "**Digest:** \`${{ steps.build.outputs.digest }}\`"
+            echo ""
+            echo "**Tags pushed to ghcr.io (pin a datetime tag in your deploy to guarantee a fresh pull):**"
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

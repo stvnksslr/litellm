@@ -25,33 +25,37 @@ class ModelResponseIterator:
             finish_reason = ""
             usage: Optional[ChatCompletionUsageBlock] = None
 
-            if processed_chunk.choices[0].delta.content is not None:  # type: ignore
-                text = processed_chunk.choices[0].delta.content  # type: ignore
+            # `choices` can be an empty list on usage-only final chunks
+            # (stream_options={"include_usage": true}) and on keepalive chunks.
+            # Skip choice-derived fields in that case; usage is still extracted below.
+            if processed_chunk.choices:
+                if processed_chunk.choices[0].delta.content is not None:  # type: ignore
+                    text = processed_chunk.choices[0].delta.content  # type: ignore
 
-            if (
-                processed_chunk.choices[0].delta.tool_calls is not None  # type: ignore
-                and len(processed_chunk.choices[0].delta.tool_calls) > 0  # type: ignore
-                and processed_chunk.choices[0].delta.tool_calls[0].function is not None  # type: ignore
-                and processed_chunk.choices[0].delta.tool_calls[0].function.arguments  # type: ignore
-                is not None
-            ):
-                tool_use = ChatCompletionToolCallChunk(
-                    id=processed_chunk.choices[0].delta.tool_calls[0].id,  # type: ignore
-                    type="function",
-                    function=ChatCompletionToolCallFunctionChunk(
-                        name=processed_chunk.choices[0]
-                        .delta.tool_calls[0]  # type: ignore
-                        .function.name,
-                        arguments=processed_chunk.choices[0]
-                        .delta.tool_calls[0]  # type: ignore
-                        .function.arguments,
-                    ),
-                    index=processed_chunk.choices[0].delta.tool_calls[0].index,
-                )
+                if (
+                    processed_chunk.choices[0].delta.tool_calls is not None  # type: ignore
+                    and len(processed_chunk.choices[0].delta.tool_calls) > 0  # type: ignore
+                    and processed_chunk.choices[0].delta.tool_calls[0].function is not None  # type: ignore
+                    and processed_chunk.choices[0].delta.tool_calls[0].function.arguments  # type: ignore
+                    is not None
+                ):
+                    tool_use = ChatCompletionToolCallChunk(
+                        id=processed_chunk.choices[0].delta.tool_calls[0].id,  # type: ignore
+                        type="function",
+                        function=ChatCompletionToolCallFunctionChunk(
+                            name=processed_chunk.choices[0]
+                            .delta.tool_calls[0]  # type: ignore
+                            .function.name,
+                            arguments=processed_chunk.choices[0]
+                            .delta.tool_calls[0]  # type: ignore
+                            .function.arguments,
+                        ),
+                        index=processed_chunk.choices[0].delta.tool_calls[0].index,
+                    )
 
-            if processed_chunk.choices[0].finish_reason is not None:
-                is_finished = True
-                finish_reason = processed_chunk.choices[0].finish_reason
+                if processed_chunk.choices[0].finish_reason is not None:
+                    is_finished = True
+                    finish_reason = processed_chunk.choices[0].finish_reason
 
             usage_chunk: Optional[Usage] = getattr(processed_chunk, "usage", None)
             if usage_chunk is not None:

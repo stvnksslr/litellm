@@ -5,6 +5,11 @@ permissions:
   packages: write
 
 on:
+  push:
+    branches:
+      - litellm_internal_staging
+      - "claude/**"
+      - "fix/**"
   workflow_dispatch:
     inputs:
       tag:
@@ -68,7 +73,7 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          platforms: ${{ inputs.platforms }}
+          platforms: ${{ inputs.platforms || 'linux/amd64' }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

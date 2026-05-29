@@ -260,6 +260,54 @@ def _is_cost_explicitly_configured(model: str, llm_router: "Router") -> bool:
     return False
 
 
+def _is_model_budget_exempt(
+    model: Optional[Union[str, List[str]]], llm_router: Optional[Router]
+) -> bool:
+    """
+    True when every requested model group is explicitly marked
+    ``model_info.skip_budget_checks: true`` on all of its deployments.
+
+    This is an admin opt-in (config or UI) to admit requests even when the
+    caller is over budget; spend is still tracked. Unlike _is_model_cost_zero
+    it does not infer intent from cost, so it safely covers models with no or
+    unknown cost without reopening the issue #24770 bypass.
+    """
+    if model is None or llm_router is None:
+        return False
+
+    model_names = [model] if isinstance(model, str) else model
+
+    for model_name in model_names:
+        try:
+            deployments = llm_router.get_model_list(model_name=model_name)
+        except Exception:
+            return False
+        if not deployments:
+            return False
+        if not all(
+            (deployment.get("model_info") or {}).get("skip_budget_checks")
+            for deployment in deployments
+        ):
+            return False
+
+    return True
+
+
+def should_skip_budget_checks_for_model(
+    model: Optional[Union[str, List[str]]], llm_router: Optional[Router]
+) -> bool:
+    """
+    Single source of truth for whether budget enforcement is skipped for a
+    request's model(s): the model has an explicitly-configured zero cost, or an
+    admin marked it ``model_info.skip_budget_checks: true``.
+    """
+    if model is None or llm_router is None:
+        return False
+    return _is_model_cost_zero(
+        model=model, llm_router=llm_router
+    ) or _is_model_budget_exempt(model=model, llm_router=llm_router)
+
+
 async def _run_project_checks(
     project_object: Optional[LiteLLM_ProjectTableCachedObj],
     _model: Optional[Union[str, List[str]]],

@@ -30,7 +30,6 @@ from litellm.proxy.auth.auth_checks import (
     _cache_key_object,
     _delete_cache_key_object,
     _get_user_role,
-    _is_model_cost_zero,
     _is_user_proxy_admin,
     _virtual_key_max_budget_alert_check,
     _virtual_key_max_budget_check,
@@ -45,6 +44,7 @@ from litellm.proxy.auth.auth_checks import (
     get_user_object,
     is_valid_fallback_model,
     resolve_and_validate_end_user_id,
+    should_skip_budget_checks_for_model,
 )
 from litellm.proxy.auth.auth_exception_handler import UserAPIKeyAuthExceptionHandler
 from litellm.proxy.auth.auth_utils import (
@@ -1018,23 +1018,19 @@ async def _user_api_key_auth_builder(  # noqa: PLR0915
                         else None
                     )
 
-                    # Check if model has zero cost - if so, skip all budget checks
+                    # Skip budget checks for zero-cost or admin-exempted models
                     model = _get_model_from_request_context(
                         request_data=request_data,
                         route=route,
                         request=request,
                     )
-                    skip_budget_checks = False
-                    if model is not None and llm_router is not None:
-                        from litellm.proxy.auth.auth_checks import _is_model_cost_zero
-
-                        skip_budget_checks = _is_model_cost_zero(
-                            model=model, llm_router=llm_router
+                    skip_budget_checks = should_skip_budget_checks_for_model(
+                        model=model, llm_router=llm_router
+                    )
+                    if skip_budget_checks:
+                        verbose_proxy_logger.info(
+                            f"Skipping all budget checks for budget-exempt model: {model}"
                         )
-                        if skip_budget_checks:
-                            verbose_proxy_logger.info(
-                                f"Skipping all budget checks for zero-cost model: {model}"
-                            )
 
                     # Fetch project object for JWT path if project_id is set
                     _jwt_project_obj = None
@@ -1435,23 +1431,19 @@ async def _user_api_key_auth_builder(  # noqa: PLR0915
                         f"User={valid_token.user_id} has been deactivated via SCIM. Keys owned by this user cannot be used."
                     )
 
-            # Check 2a. Check if model has zero cost - if so, skip all budget checks
+            # Check 2a. Skip budget checks for zero-cost or admin-exempted models
             model = _get_model_from_request_context(
                 request_data=request_data,
                 route=route,
                 request=request,
             )
-            skip_budget_checks = False
-            if model is not None and llm_router is not None:
-                from litellm.proxy.auth.auth_checks import _is_model_cost_zero
-
-                skip_budget_checks = _is_model_cost_zero(
-                    model=model, llm_router=llm_router
+            skip_budget_checks = should_skip_budget_checks_for_model(
+                model=model, llm_router=llm_router
+            )
+            if skip_budget_checks:
+                verbose_proxy_logger.info(
+                    f"Skipping all budget checks for budget-exempt model: {model}"
                 )
-                if skip_budget_checks:
-                    verbose_proxy_logger.info(
-                        f"Skipping all budget checks for zero-cost model: {model}"
-                    )
 
             # Check 3. Check if user is in their team budget
             if not skip_budget_checks and valid_token.team_member_spend is not None:
@@ -2149,9 +2141,7 @@ def _should_skip_budget_checks(
         route=route,
         request=request,
     )
-    if model is not None and llm_router is not None:
-        return _is_model_cost_zero(model=model, llm_router=llm_router)
-    return False
+    return should_skip_budget_checks_for_model(model=model, llm_router=llm_router)
 
 
 @tracer.wrap()

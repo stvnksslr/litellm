@@ -110,6 +110,8 @@ export const prepareModelAddRequest = async (formValues: Record<string, any>, ac
           modelInfoObj["team_id"] = value;
         } else if (key === "model_access_group") {
           modelInfoObj["access_groups"] = value;
+        } else if (key === "skip_budget_checks") {
+          modelInfoObj["skip_budget_checks"] = value;
         } else if (key == "mode") {
           console.log("placing mode in modelInfo");
           modelInfoObj["mode"] = value;

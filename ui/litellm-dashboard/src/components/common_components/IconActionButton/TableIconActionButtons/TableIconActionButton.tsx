@@ -30,6 +30,7 @@ export const TableIconActionButtonMap: Record<string, TableIconActionButtonBaseP
   Delete: { icon: TrashIcon, className: "hover:text-red-600" },
   Test: { icon: PlayIcon, className: "hover:text-blue-600" },
   Regenerate: { icon: RefreshIcon, className: "hover:text-green-600" },
+  ResetSpend: { icon: RefreshIcon, className: "hover:text-orange-600" },
   Up: { icon: ChevronUpIcon, className: "hover:text-blue-600" },
   Down: { icon: ChevronDownIcon, className: "hover:text-blue-600" },
   Open: { icon: ExternalLinkIcon, className: "hover:text-green-600" },

@@ -3037,6 +3037,22 @@ export const teamMemberDeleteCall = async (
   }
 };
 
+export const teamMemberResetSpendCall = async (accessToken: string, teamId: string, userId: string) => {
+  try {
+    return await apiClient.post(`/team/member_reset_spend`, {
+      accessToken,
+      body: {
+        team_id: teamId,
+        user_id: userId,
+        reset_to: 0,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to reset team member spend:", error);
+    throw error;
+  }
+};
+
 export const organizationMemberAddCall = async (
   accessToken: string,
   organizationId: string,

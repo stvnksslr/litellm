@@ -17,6 +17,8 @@ export interface MemberTableProps {
   roleTooltip?: string;
   extraColumns?: ColumnsType<Member>;
   showDeleteForMember?: (member: Member) => boolean;
+  onResetSpend?: (member: Member) => void;
+  showResetSpendForMember?: (member: Member) => boolean;
   emptyText?: string;
 }
 
@@ -30,6 +32,8 @@ export default function MemberTable({
   roleTooltip,
   extraColumns = [],
   showDeleteForMember,
+  onResetSpend,
+  showResetSpendForMember,
   emptyText,
 }: MemberTableProps) {
   const baseColumns: ColumnsType<Member> = [
@@ -85,6 +89,14 @@ export default function MemberTable({
               dataTestId="edit-member"
               onClick={() => onEdit(record)}
             />
+            {onResetSpend && (!showResetSpendForMember || showResetSpendForMember(record)) && (
+              <TableIconActionButton
+                variant="ResetSpend"
+                tooltipText="Reset current-cycle spend"
+                dataTestId="reset-member-spend"
+                onClick={() => onResetSpend(record)}
+              />
+            )}
             {(!showDeleteForMember || showDeleteForMember(record)) && (
               <TableIconActionButton
                 variant="Delete"

@@ -256,15 +256,6 @@ class ResetBudgetJob:
             )
 
             if budgets_to_reset is not None and len(budgets_to_reset) > 0:
-                for budget in budgets_to_reset:
-                    budget = await ResetBudgetJob._reset_budget_reset_at_date(budget, now, self.reset_settings)
-
-                await self.prisma_client.update_data(
-                    query_type="update_many",
-                    data_list=budgets_to_reset,
-                    table_name="budget",
-                )
-
                 budget_ids_to_reset = [budget.budget_id for budget in budgets_to_reset if budget.budget_id is not None]
 
                 endusers_to_reset = await self.prisma_client.get_data(
@@ -321,12 +312,30 @@ class ResetBudgetJob:
                     table_name="enduser",
                 )
 
-            end_time = time.time()
             if len(failed_endusers) > 0:  # If any endusers failed to reset
                 raise Exception(
                     f"Failed to reset {len(failed_endusers)} endusers: {json.dumps(failed_endusers, default=str)}"
                 )
 
+            # Advance budget_reset_at LAST, only after all linked spend (team
+            # members, keys, orgs, tags, end users) has been zeroed. Any transient
+            # DB failure above raises before this point, leaving budget_reset_at in
+            # the past so the next scheduler tick retries the whole reset. Advancing
+            # earlier rolls the cycle forward with spend still uncleared, silently
+            # skipping the reset until the following cycle.
+            if budgets_to_reset is not None and len(budgets_to_reset) > 0:
+                for budget in budgets_to_reset:
+                    budget = await ResetBudgetJob._reset_budget_reset_at_date(
+                        budget, now, self.reset_settings
+                    )
+
+                await self.prisma_client.update_data(
+                    query_type="update_many",
+                    data_list=budgets_to_reset,
+                    table_name="budget",
+                )
+
+            end_time = time.time()
             asyncio.create_task(
                 self.proxy_logging_obj.service_logging_obj.async_service_success_hook(
                     service=ServiceTypes.RESET_BUDGET_JOB,
@@ -353,7 +362,7 @@ class ResetBudgetJob:
                     service=ServiceTypes.RESET_BUDGET_JOB,
                     duration=end_time - start_time,
                     error=e,
-                    call_type="reset_budget_endusers",
+                    call_type="reset_budget_budget_table",
                     start_time=start_time,
                     end_time=end_time,
                     event_metadata={
@@ -364,7 +373,10 @@ class ResetBudgetJob:
                     },
                 )
             )
-            verbose_proxy_logger.exception("Failed to reset budget for endusers: %s", e)
+            verbose_proxy_logger.exception(
+                "Failed to reset budget table (team members / keys / orgs / tags / end users): %s",
+                e,
+            )
 
     async def _get_endusers_with_no_budget_id(
         self,

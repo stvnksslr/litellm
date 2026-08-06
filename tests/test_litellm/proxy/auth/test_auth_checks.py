@@ -4345,29 +4345,35 @@ async def test_model_discovery_route_bypasses_user_budget():
     assert result is True
 
 
+@pytest.mark.parametrize("route", ["/health/services", "/key/info", "/user/info"])
 @pytest.mark.asyncio
-async def test_side_effectful_info_route_still_enforces_budget():
-    """#27923 keeps the bypass narrow: /health/services can fire Slack/email/webhook test
-    messages, so an exhausted budget must still block it. Widening the exemption back to
-    is_info_route() would regress this."""
+async def test_non_inference_route_bypasses_team_budget(route):
+    """Budget exhaustion gates spend-bearing (LLM) routes only. Non-inference routes,
+    including the admin-only /health/services (gated by RBAC, not budget) and read-only
+    info/spend routes, must stay reachable so an over-budget caller can still introspect.
+    This intentionally widens the prior #27923 carve-out, which only spared model-discovery
+    routes, to every route is_llm_api_route() classifies as non-spending."""
     from litellm.proxy.auth.auth_checks import common_checks
 
     team_object = LiteLLM_TeamTable(team_id="test-team", spend=150.0, max_budget=100.0)
+    request = MagicMock()
+    request.query_params = {}
 
-    with pytest.raises(litellm.BudgetExceededError):
-        await common_checks(
-            request_body={},
-            team_object=team_object,
-            user_object=None,
-            end_user_object=None,
-            global_proxy_spend=None,
-            general_settings={},
-            route="/health/services",
-            llm_router=None,
-            proxy_logging_obj=AsyncMock(),
-            valid_token=UserAPIKeyAuth(token="test-token", team_id="test-team"),
-            request=MagicMock(),
-        )
+    result = await common_checks(
+        request_body={},
+        team_object=team_object,
+        user_object=None,
+        end_user_object=None,
+        global_proxy_spend=None,
+        general_settings={},
+        route=route,
+        llm_router=None,
+        proxy_logging_obj=AsyncMock(),
+        valid_token=UserAPIKeyAuth(token="test-token", team_id="test-team"),
+        request=request,
+    )
+
+    assert result is True
 
 
 @pytest.mark.asyncio
@@ -4722,3 +4728,53 @@ async def test_common_checks_personal_user_budget_skipped_for_team_key():
             request=MagicMock(spec=Request),
         )
     assert result is True
+
+
+@pytest.mark.asyncio
+async def test_get_listed_models_from_access_groups_uses_listed_field():
+    """When listed_model_names is set, the listing resolver returns only those models."""
+    from litellm.proxy.auth.auth_checks import _get_listed_models_from_access_groups
+    from litellm.models.access_group import LiteLLM_AccessGroupTable
+
+    ag = LiteLLM_AccessGroupTable(
+        access_group_id="ag-1",
+        access_group_name="g1",
+        access_model_names=["gpt-4o", "claude-3"],
+        listed_model_names=["gpt-4o"],
+    )
+
+    mock_cache = MagicMock()
+    mock_cache.async_get_cache = AsyncMock(return_value=ag)
+
+    result = await _get_listed_models_from_access_groups(
+        access_group_ids=["ag-1"],
+        prisma_client=MagicMock(),
+        user_api_key_cache=mock_cache,
+        proxy_logging_obj=MagicMock(),
+    )
+    assert result == ["gpt-4o"]
+
+
+@pytest.mark.asyncio
+async def test_get_listed_models_falls_back_to_access_model_names():
+    """When listed_model_names is empty, the listing resolver falls back to access_model_names."""
+    from litellm.proxy.auth.auth_checks import _get_listed_models_from_access_groups
+    from litellm.models.access_group import LiteLLM_AccessGroupTable
+
+    ag = LiteLLM_AccessGroupTable(
+        access_group_id="ag-1",
+        access_group_name="g1",
+        access_model_names=["gpt-4o", "claude-3"],
+        listed_model_names=[],
+    )
+
+    mock_cache = MagicMock()
+    mock_cache.async_get_cache = AsyncMock(return_value=ag)
+
+    result = await _get_listed_models_from_access_groups(
+        access_group_ids=["ag-1"],
+        prisma_client=MagicMock(),
+        user_api_key_cache=mock_cache,
+        proxy_logging_obj=MagicMock(),
+    )
+    assert result == ["gpt-4o", "claude-3"]

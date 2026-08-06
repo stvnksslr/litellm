@@ -8710,7 +8710,7 @@ async def model_list(
 
         # Include model access groups if requested
         if include_model_access_groups:
-            proxy_model_list = list(set(proxy_model_list + list(model_access_groups.keys())))
+            proxy_model_list = list(dict.fromkeys(proxy_model_list + list(model_access_groups.keys())))
 
         # Get complete model list including wildcard routes if requested
         from litellm.proxy.auth.model_checks import get_complete_model_list

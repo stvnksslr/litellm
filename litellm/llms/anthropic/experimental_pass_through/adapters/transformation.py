@@ -10,6 +10,7 @@ from typing import (
     List,
     Literal,
     Optional,
+    Sequence,
     Tuple,
     Union,
     cast,
@@ -84,7 +85,6 @@ from litellm.llms.anthropic.experimental_pass_through.context_management import 
     PolyfillResult,
 )
 from litellm.types.llms.anthropic import (
-    ANTHROPIC_HOSTED_TOOLS,
     AllAnthropicToolsValues,
     AnthopicMessagesAssistantMessageParam,
     AnthropicFinishReason,
@@ -107,6 +107,7 @@ from litellm.types.llms.anthropic import (
     StreamingContentBlockDeltaType,
     UsageDelta,
     UsageIteration,
+    is_anthropic_hosted_tool_type,
 )
 from litellm.types.llms.anthropic_messages.anthropic_response import (
     AnthropicMessagesResponse,
@@ -351,6 +352,61 @@ class LiteLLMAnthropicMessagesAdapter:
         tool_name = tool.get("name", "")
         return (isinstance(tool_type, str) and tool_type.startswith("web_search")) or tool_name == "web_search"
 
+    def _translate_anthropic_tool_result_block_to_str(self, block: object) -> str:
+        if isinstance(block, str):
+            return block
+        if not isinstance(block, dict):
+            return ""
+        block_type = block.get("type")
+        if block_type == "text":
+            return str(block.get("text", ""))
+        if block_type == "image":
+            return self._translate_anthropic_image_to_openai(cast(dict, block.get("source", {}))) or ""
+        return ""
+
+    def _translate_anthropic_tool_result_block(
+        self, block: object
+    ) -> Optional[Union[ChatCompletionTextObject, ChatCompletionImageObject]]:
+        if isinstance(block, str):
+            return ChatCompletionTextObject(type="text", text=block)
+        if not isinstance(block, dict):
+            return None
+        block_type = block.get("type")
+        if block_type == "text":
+            return ChatCompletionTextObject(type="text", text=str(block.get("text", "")))
+        if block_type == "image":
+            image_url = self._translate_anthropic_image_to_openai(cast(dict, block.get("source", {})))
+            if not image_url:
+                return None
+            return ChatCompletionImageObject(
+                type="image_url",
+                image_url=ChatCompletionImageUrlObject(url=image_url),
+            )
+        return None
+
+    def _translate_anthropic_tool_result_content(
+        self, tool_result_content: object
+    ) -> Union[str, Sequence[Union[ChatCompletionTextObject, ChatCompletionImageObject]]]:
+        """Map an Anthropic ``tool_result`` payload onto OpenAI tool-message content.
+
+        Always returns something renderable, never nothing: every ``tool_use`` needs
+        exactly one tool message downstream, and dropping the message orphans the
+        matching tool call (a 400 on the Responses API and on strict chat backends).
+        Unsupported block types (documents, hosted-tool results) collapse to "".
+        """
+        if isinstance(tool_result_content, str):
+            return tool_result_content
+        if not isinstance(tool_result_content, list):
+            return ""
+        if len(tool_result_content) == 1:
+            return self._translate_anthropic_tool_result_block_to_str(tool_result_content[0])
+        blocks = tuple(
+            block
+            for block in (self._translate_anthropic_tool_result_block(item) for item in tool_result_content)
+            if block is not None
+        )
+        return list(blocks) if blocks else ""
+
     def translate_anthropic_messages_to_openai(
         self,
         messages: List[
@@ -399,103 +455,13 @@ class LiteLLMAnthropicMessagesAdapter:
                                 self._add_cache_control_if_applicable(content, doc_obj, model)
                                 new_user_content_list.append(doc_obj)  # type: ignore
                         elif content.get("type") == "tool_result":
-                            if "content" not in content:
-                                tool_result = ChatCompletionToolMessage(
-                                    role="tool",
-                                    tool_call_id=content.get("tool_use_id", ""),
-                                    content="",
-                                )
-                                self._add_cache_control_if_applicable(content, tool_result, model)
-                                tool_message_list.append(tool_result)  # type: ignore[arg-type]
-                            elif isinstance(content.get("content"), str):
-                                tool_result = ChatCompletionToolMessage(
-                                    role="tool",
-                                    tool_call_id=content.get("tool_use_id", ""),
-                                    content=str(content.get("content", "")),
-                                )
-                                self._add_cache_control_if_applicable(content, tool_result, model)
-                                tool_message_list.append(tool_result)  # type: ignore[arg-type]
-                            elif isinstance(content.get("content"), list):
-                                # Combine all content items into a single tool message
-                                # to avoid creating multiple tool_result blocks with the same ID
-                                # (each tool_use must have exactly one tool_result)
-                                content_items = list(content.get("content", []))
-
-                                # For single-item content, maintain backward compatibility with string/url format
-                                if len(content_items) == 1:
-                                    c = content_items[0]
-                                    if isinstance(c, str):
-                                        tool_result = ChatCompletionToolMessage(
-                                            role="tool",
-                                            tool_call_id=content.get("tool_use_id", ""),
-                                            content=c,
-                                        )
-                                        self._add_cache_control_if_applicable(content, tool_result, model)
-                                        tool_message_list.append(tool_result)  # type: ignore[arg-type]
-                                    elif isinstance(c, dict):
-                                        if c.get("type") == "text":
-                                            tool_result = ChatCompletionToolMessage(
-                                                role="tool",
-                                                tool_call_id=content.get("tool_use_id", ""),
-                                                content=c.get("text", ""),
-                                            )
-                                            self._add_cache_control_if_applicable(content, tool_result, model)
-                                            tool_message_list.append(tool_result)  # type: ignore[arg-type]
-                                        elif c.get("type") == "image":
-                                            source = c.get("source", {})
-                                            openai_image_url = (
-                                                self._translate_anthropic_image_to_openai(cast(dict, source)) or ""
-                                            )
-                                            tool_result = ChatCompletionToolMessage(
-                                                role="tool",
-                                                tool_call_id=content.get("tool_use_id", ""),
-                                                content=openai_image_url,
-                                            )
-                                            self._add_cache_control_if_applicable(content, tool_result, model)
-                                            tool_message_list.append(tool_result)  # type: ignore[arg-type]
-                                else:
-                                    # For multiple content items, combine into a single tool message
-                                    # with list content to preserve all items while having one tool_use_id
-                                    combined_content_parts: List[
-                                        Union[
-                                            ChatCompletionTextObject,
-                                            ChatCompletionImageObject,
-                                        ]
-                                    ] = []
-                                    for c in content_items:
-                                        if isinstance(c, str):
-                                            combined_content_parts.append(ChatCompletionTextObject(type="text", text=c))
-                                        elif isinstance(c, dict):
-                                            if c.get("type") == "text":
-                                                combined_content_parts.append(
-                                                    ChatCompletionTextObject(
-                                                        type="text",
-                                                        text=c.get("text", ""),
-                                                    )
-                                                )
-                                            elif c.get("type") == "image":
-                                                source = c.get("source", {})
-                                                openai_image_url = (
-                                                    self._translate_anthropic_image_to_openai(cast(dict, source)) or ""
-                                                )
-                                                if openai_image_url:
-                                                    combined_content_parts.append(
-                                                        ChatCompletionImageObject(
-                                                            type="image_url",
-                                                            image_url=ChatCompletionImageUrlObject(
-                                                                url=openai_image_url
-                                                            ),
-                                                        )
-                                                    )
-                                    # Create a single tool message with combined content
-                                    if combined_content_parts:
-                                        tool_result = ChatCompletionToolMessage(
-                                            role="tool",
-                                            tool_call_id=content.get("tool_use_id", ""),
-                                            content=combined_content_parts,  # type: ignore
-                                        )
-                                        self._add_cache_control_if_applicable(content, tool_result, model)
-                                        tool_message_list.append(tool_result)  # type: ignore[arg-type]
+                            tool_result = ChatCompletionToolMessage(
+                                role="tool",
+                                tool_call_id=content.get("tool_use_id", ""),
+                                content=self._translate_anthropic_tool_result_content(content.get("content")),
+                            )
+                            self._add_cache_control_if_applicable(content, tool_result, model)
+                            tool_message_list.append(tool_result)  # type: ignore[arg-type]
 
             if len(tool_message_list) > 0:
                 new_messages.extend(tool_message_list)
@@ -737,18 +703,24 @@ class LiteLLMAnthropicMessagesAdapter:
         # merged into the OpenAI function `parameters` schema below, or it
         # overwrites the real parameters.type ("object") and the provider
         # rejects the request. See #30557.
+        anthropic_only_tool_params = (
+            "defer_loading",
+            "allowed_callers",
+            "input_examples",
+        )
         mapped_tool_params = [
             "name",
             "input_schema",
             "description",
             "cache_control",
             "type",
+            *anthropic_only_tool_params,
         ]
 
         for idx, tool in enumerate(tools):
             # Check if this is an Anthropic-native tool that should be kept as-is
             tool_type = tool.get("type", "")
-            if any(tool_type.startswith(t.value) for t in ANTHROPIC_HOSTED_TOOLS):
+            if is_anthropic_hosted_tool_type(tool_type):
                 # Keep Anthropic-native tools in their original format
                 new_tools.append(tool)  # type: ignore[arg-type]
                 continue

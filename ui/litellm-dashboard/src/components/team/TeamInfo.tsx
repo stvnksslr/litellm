@@ -11,6 +11,7 @@ import {
   teamInfoCall,
   teamMemberAddCall,
   teamMemberDeleteCall,
+  teamMemberResetSpendCall,
   teamMemberUpdateCall,
   teamUpdateCall,
 } from "@/components/networking";
@@ -29,7 +30,7 @@ import {
 } from "@ant-design/icons";
 import { ArrowLeftIcon } from "@heroicons/react/outline";
 import { Accordion, AccordionBody, AccordionHeader, Badge, Card, Grid, Text, TextInput, Title } from "@tremor/react";
-import { Button, Form, Input, InputNumber, Select, Space, Switch, Tabs, Tag, Tooltip } from "antd";
+import { Button, Form, Input, InputNumber, Modal, Select, Space, Switch, Tabs, Tag, Tooltip } from "antd";
 import MessageManager from "@/components/molecules/message_manager";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
@@ -197,6 +198,9 @@ const TeamInfoView: React.FC<TeamInfoProps> = ({
   const [memberToDelete, setMemberToDelete] = useState<Member | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [memberToResetSpend, setMemberToResetSpend] = useState<Member | null>(null);
+  const [isResetSpendModalOpen, setIsResetSpendModalOpen] = useState(false);
+  const [isResettingSpend, setIsResettingSpend] = useState(false);
   const [isTeamSaving, setIsTeamSaving] = useState(false);
   const [teamModelAliases, setTeamModelAliases] = useState<Record<string, string>>({});
   const routerSettingsRef = React.useRef<RouterSettingsAccordionRef>(null);
@@ -446,6 +450,38 @@ const TeamInfoView: React.FC<TeamInfoProps> = ({
   const handleDeleteCancel = () => {
     setIsDeleteModalOpen(false);
     setMemberToDelete(null);
+  };
+
+  const handleMemberResetSpend = (member: Member) => {
+    setMemberToResetSpend(member);
+    setIsResetSpendModalOpen(true);
+  };
+
+  const handleResetSpendConfirm = async () => {
+    if (!memberToResetSpend?.user_id || !accessToken) return;
+
+    setIsResettingSpend(true);
+    try {
+      await teamMemberResetSpendCall(accessToken, teamId, memberToResetSpend.user_id);
+
+      NotificationsManager.success("Team member spend reset to $0");
+
+      const updatedTeamData = await teamInfoCall(accessToken, teamId);
+      setTeamData(updatedTeamData);
+      onUpdate(updatedTeamData);
+    } catch (error) {
+      NotificationsManager.fromBackend("Failed to reset team member spend");
+      console.error("Error resetting team member spend:", error);
+    } finally {
+      setIsResettingSpend(false);
+      setIsResetSpendModalOpen(false);
+      setMemberToResetSpend(null);
+    }
+  };
+
+  const handleResetSpendCancel = () => {
+    setIsResetSpendModalOpen(false);
+    setMemberToResetSpend(null);
   };
 
   const handleTeamUpdate = async (values: any) => {
@@ -894,6 +930,7 @@ const TeamInfoView: React.FC<TeamInfoProps> = ({
                 teamData={teamData}
                 canEditTeam={canEditTeam}
                 handleMemberDelete={handleMemberDelete}
+                handleMemberResetSpend={handleMemberResetSpend}
                 setSelectedEditMember={setSelectedEditMember}
                 setIsEditMemberModalVisible={setIsEditMemberModalVisible}
                 setIsAddMemberModalVisible={setIsAddMemberModalVisible}
@@ -1819,6 +1856,26 @@ const TeamInfoView: React.FC<TeamInfoProps> = ({
         onOk={handleDeleteConfirm}
         confirmLoading={isDeleting}
       />
+
+      <Modal
+        title="Reset Team Member Spend"
+        open={isResetSpendModalOpen}
+        onOk={handleResetSpendConfirm}
+        onCancel={handleResetSpendCancel}
+        okText="Reset"
+        okButtonProps={{ danger: true }}
+        confirmLoading={isResettingSpend}
+      >
+        <p>
+          Reset current-cycle spend for{" "}
+          <strong>{memberToResetSpend?.user_email || memberToResetSpend?.user_id || "this member"}</strong> to{" "}
+          <strong>$0</strong>?
+        </p>
+        <p style={{ color: "#666", fontSize: "0.875rem", marginTop: 8 }}>
+          This is the spend checked against the member&apos;s team budget. Lifetime total spend and spend history in
+          logs are preserved.
+        </p>
+      </Modal>
     </div>
   );
 };

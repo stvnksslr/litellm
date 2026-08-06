@@ -459,7 +459,9 @@ def test_reset_budget_all(reset_budget_job, mock_prisma_client):
         ("user", {"user_id": "uid-all-1"}),
         ("team", {"team_id": "tid-all-1"}),
     ]:
-        writes = [c for c in mock_prisma_client.db.batch_calls if c["table"] == table_name]
+        writes = [
+            c for c in mock_prisma_client.db.batch_calls if c["table"] == table_name
+        ]
         assert len(writes) == 1, f"expected 1 {table_name} write, got {len(writes)}"
         assert writes[0]["where"] == where
         assert writes[0]["data"]["spend"] == 0
@@ -1511,7 +1513,9 @@ def test_reset_does_not_zero_counter_when_db_write_fails(monkeypatch):
     counter_cache.in_memory_cache.set_cache.assert_not_called()
 
 
-def test_reset_budget_for_keys_writes_only_spend_and_reset_at(reset_budget_job, mock_prisma_client):
+def test_reset_budget_for_keys_writes_only_spend_and_reset_at(
+    reset_budget_job, mock_prisma_client
+):
     """
     Regression for #27730 (the trigger-half).
 
@@ -1817,3 +1821,66 @@ def test_get_data_reset_query_selects_null_budget_reset_at(table_name):
     )
 
     _asserts_null_reset_is_due(_extract_reset_where(find_many))
+def test_budget_table_reset_skips_reset_at_advance_when_member_cascade_fails(
+    reset_budget_job, mock_prisma_client
+):
+    """
+    Regression for the 2026-06-15 missed weekly reset: a transient DB failure while
+    zeroing linked spend must NOT advance budget_reset_at. The spend cascades (team
+    members, keys, orgs, tags) run first and budget_reset_at is written last, so a
+    failure leaves the budget overdue and the next scheduler tick retries, instead of
+    rolling the cycle forward with member spend never cleared (a silent, week-long miss).
+    """
+    now = datetime.now(timezone.utc)
+    original_reset_at = now - timedelta(hours=1)
+    test_budget = type(
+        "LiteLLM_BudgetTableFull",
+        (),
+        {
+            "max_budget": 65.0,
+            "budget_duration": "7d",
+            "budget_reset_at": original_reset_at,
+            "budget_id": "7d-member-budget",
+            "created_at": now - timedelta(days=7),
+        },
+    )
+    mock_prisma_client.data["budget"] = [test_budget]
+
+    # Reproduce the incident: the team-member spend update times out.
+    mock_prisma_client.db.litellm_teammembership.update_many = AsyncMock(
+        side_effect=Exception("httpx.ReadTimeout")
+    )
+
+    asyncio.run(reset_budget_job.reset_budget_for_litellm_budget_table())
+
+    mock_prisma_client.db.litellm_teammembership.update_many.assert_awaited()
+    assert mock_prisma_client.updated_data["budget"] == [], (
+        "budget_reset_at must not be advanced when a spend cascade fails, "
+        "otherwise the overdue budget is skipped until the next cycle"
+    )
+    assert test_budget.budget_reset_at == original_reset_at
+
+
+def test_budget_table_reset_advances_reset_at_after_cascades_succeed(
+    reset_budget_job, mock_prisma_client
+):
+    """Happy path: when the spend cascades succeed, budget_reset_at is advanced
+    (written last) past now."""
+    now = datetime.now(timezone.utc)
+    test_budget = type(
+        "LiteLLM_BudgetTableFull",
+        (),
+        {
+            "max_budget": 65.0,
+            "budget_duration": "7d",
+            "budget_reset_at": now - timedelta(hours=1),
+            "budget_id": "7d-ok-budget",
+            "created_at": now - timedelta(days=7),
+        },
+    )
+    mock_prisma_client.data["budget"] = [test_budget]
+
+    asyncio.run(reset_budget_job.reset_budget_for_litellm_budget_table())
+
+    assert len(mock_prisma_client.updated_data["budget"]) == 1
+    assert mock_prisma_client.updated_data["budget"][0].budget_reset_at > now

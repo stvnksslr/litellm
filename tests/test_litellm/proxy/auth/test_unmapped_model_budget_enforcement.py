@@ -133,9 +133,9 @@ class TestUnmappedModelBudgetEnforcement:
                 },
             ]
         )
-        # Warm the cache as zero-cost.
+        # Warm the cache as zero-cost. Keyed by (team_id, model_name).
         assert _is_model_cost_zero(model="ramping-model", llm_router=router) is True
-        assert router._zero_cost_cache.get("ramping-model") is True
+        assert router._zero_cost_cache.get((None, "ramping-model")) is True
 
         # In-place pricing update: same deployment count, same router id,
         # same model name. The pre-fix cache key was

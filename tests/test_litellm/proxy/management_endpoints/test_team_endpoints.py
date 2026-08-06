@@ -9147,6 +9147,172 @@ def _non_admin_auth():
     )
 
 
+def _reset_team_obj(team_id="t-reset", members=None):
+    return LiteLLM_TeamTable(
+        team_id=team_id,
+        team_alias="Reset Team",
+        spend=0.0,
+        models=[],
+        members_with_roles=members or [],
+        metadata={},
+    )
+
+
+def _reset_membership(spend=12.5, total_spend=99.0, max_budget=50.0):
+    membership = MagicMock()
+    membership.spend = spend
+    membership.total_spend = total_spend
+    membership.litellm_budget_table = MagicMock(
+        max_budget=max_budget, budget_reset_at=None
+    )
+    return membership
+
+
+@pytest.mark.asyncio
+async def test_team_member_reset_spend_zeroes_spend_and_invalidates_caches(
+    mock_db_client, mock_admin_auth
+):
+    """Proxy admin reset zeroes only the membership's current-cycle spend and
+    invalidates both the spend counter and the management cache so a cross-pod
+    reset takes effect immediately."""
+    from fastapi import Request
+
+    from litellm.proxy._types import TeamMemberResetSpendRequest
+    from litellm.proxy.management_endpoints.team_endpoints import (
+        team_member_reset_spend,
+    )
+
+    mock_db_client.db.litellm_teamtable.find_unique = AsyncMock(
+        return_value=_reset_team_obj()
+    )
+    mock_db_client.db.litellm_teammembership = MagicMock()
+    mock_db_client.db.litellm_teammembership.find_first = AsyncMock(
+        return_value=_reset_membership(spend=12.5, total_spend=99.0, max_budget=50.0)
+    )
+    mock_db_client.db.litellm_teammembership.update_many = AsyncMock()
+
+    with (
+        patch(
+            "litellm.proxy.common_utils.reset_budget_job.ResetBudgetJob._invalidate_spend_counter",
+            new_callable=AsyncMock,
+        ) as mock_counter,
+        patch(
+            "litellm.proxy.common_utils.reset_budget_job.ResetBudgetJob._invalidate_user_api_key_cache_entry",
+            new_callable=AsyncMock,
+        ) as mock_cache,
+    ):
+        response = await team_member_reset_spend(
+            data=TeamMemberResetSpendRequest(team_id="t-reset", user_id="u1"),
+            http_request=MagicMock(spec=Request),
+            user_api_key_dict=mock_admin_auth,
+        )
+
+    assert response.spend == 0.0
+    assert response.previous_spend == 12.5
+    assert response.max_budget == 50.0
+
+    mock_db_client.db.litellm_teammembership.update_many.assert_awaited_once_with(
+        where={"user_id": "u1", "team_id": "t-reset"},
+        data={"spend": 0.0},
+    )
+    mock_counter.assert_awaited_once_with("spend:team_member:u1:t-reset")
+    mock_cache.assert_awaited_once_with("t-reset_u1")
+
+
+@pytest.mark.asyncio
+async def test_team_member_reset_spend_forbidden_for_non_admin(mock_db_client):
+    """A plain team member (not proxy/team/org admin) cannot reset spend."""
+    from fastapi import Request
+
+    from litellm.proxy._types import TeamMemberResetSpendRequest
+    from litellm.proxy.management_endpoints.team_endpoints import (
+        team_member_reset_spend,
+    )
+
+    mock_db_client.db.litellm_teamtable.find_unique = AsyncMock(
+        return_value=_reset_team_obj()
+    )
+    mock_db_client.db.litellm_teammembership = MagicMock()
+    mock_db_client.db.litellm_teammembership.update_many = AsyncMock()
+
+    with patch(
+        "litellm.proxy.management_endpoints.team_endpoints._is_user_org_admin_for_team",
+        new_callable=AsyncMock,
+        return_value=False,
+    ):
+        with pytest.raises(HTTPException) as exc:
+            await team_member_reset_spend(
+                data=TeamMemberResetSpendRequest(team_id="t-reset", user_id="u1"),
+                http_request=MagicMock(spec=Request),
+                user_api_key_dict=_non_admin_auth(),
+            )
+
+    assert exc.value.status_code == 403
+    mock_db_client.db.litellm_teammembership.update_many.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_team_member_reset_spend_rejects_reset_above_current_spend(
+    mock_db_client, mock_admin_auth
+):
+    """reset_to cannot exceed the member's current spend."""
+    from fastapi import Request
+
+    from litellm.proxy._types import TeamMemberResetSpendRequest
+    from litellm.proxy.management_endpoints.team_endpoints import (
+        team_member_reset_spend,
+    )
+
+    mock_db_client.db.litellm_teamtable.find_unique = AsyncMock(
+        return_value=_reset_team_obj()
+    )
+    mock_db_client.db.litellm_teammembership = MagicMock()
+    mock_db_client.db.litellm_teammembership.find_first = AsyncMock(
+        return_value=_reset_membership(spend=5.0)
+    )
+    mock_db_client.db.litellm_teammembership.update_many = AsyncMock()
+
+    with pytest.raises(HTTPException) as exc:
+        await team_member_reset_spend(
+            data=TeamMemberResetSpendRequest(
+                team_id="t-reset", user_id="u1", reset_to=10.0
+            ),
+            http_request=MagicMock(spec=Request),
+            user_api_key_dict=mock_admin_auth,
+        )
+
+    assert exc.value.status_code == 400
+    mock_db_client.db.litellm_teammembership.update_many.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_team_member_reset_spend_missing_membership_returns_404(
+    mock_db_client, mock_admin_auth
+):
+    """A user with no membership row in the team yields a 404."""
+    from fastapi import Request
+
+    from litellm.proxy._types import TeamMemberResetSpendRequest
+    from litellm.proxy.management_endpoints.team_endpoints import (
+        team_member_reset_spend,
+    )
+
+    mock_db_client.db.litellm_teamtable.find_unique = AsyncMock(
+        return_value=_reset_team_obj()
+    )
+    mock_db_client.db.litellm_teammembership = MagicMock()
+    mock_db_client.db.litellm_teammembership.find_first = AsyncMock(return_value=None)
+
+    with pytest.raises(HTTPException) as exc:
+        await team_member_reset_spend(
+            data=TeamMemberResetSpendRequest(team_id="t-reset", user_id="ghost"),
+            http_request=MagicMock(spec=Request),
+            user_api_key_dict=mock_admin_auth,
+        )
+
+    assert exc.value.status_code == 404
+
+
 def test_check_passthrough_routes_caller_permission_team():
     from litellm.proxy._types import NewTeamRequest
     from litellm.proxy.management_endpoints.common_utils import (

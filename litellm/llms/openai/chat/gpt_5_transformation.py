@@ -1,5 +1,6 @@
 """Support for OpenAI gpt-5 model family."""
 
+import re
 from typing import Optional, Union
 
 import litellm
@@ -90,29 +91,44 @@ class OpenAIGPT5Config(OpenAIGPTConfig):
         return "gpt-5-codex" in model
 
     @classmethod
+    def _gpt_5_minor_version(cls, model: str) -> Optional[int]:
+        """Extract the gpt-5.<minor> version number, matched anywhere in ``model``.
+
+        Uses a substring search (like ``is_model_gpt_5_model``) rather than
+        requiring the normalized name to *start* with ``gpt-5.``, so custom
+        deployment names that embed the model name (e.g. an Azure deployment
+        named ``my-org-gpt-5.6-luna-2026-07-09``) are still detected correctly.
+        Returns None for non-versioned or unparseable names (e.g. ``gpt-5``,
+        ``gpt-5-codex``).
+        """
+        match = re.search(r"gpt-5\.(\d+)", model)
+        return int(match.group(1)) if match else None
+
+    @classmethod
     def is_model_gpt_5_2_model(cls, model: str) -> bool:
         """Check if the model is a gpt-5.2 variant (including pro)."""
-        model_name = model.split("/")[-1]
-        return model_name.startswith("gpt-5.2") or model_name.startswith("gpt-5.4")
+        return cls._gpt_5_minor_version(model) in (2, 4)
 
     @classmethod
     def is_model_gpt_5_4_model(cls, model: str) -> bool:
         """Check if the model is a gpt-5.4 variant (including pro)."""
-        model_name = model.split("/")[-1]
-        return model_name.startswith("gpt-5.4")
+        return cls._gpt_5_minor_version(model) == 4
+
+    @classmethod
+    def _gpt_5_minor_version_at_least(cls, model: str, minimum: int) -> bool:
+        """Return True when a versioned gpt-5.<minor> name is at or above ``minimum``."""
+        minor = cls._gpt_5_minor_version(model)
+        return minor is not None and minor >= minimum
 
     @classmethod
     def is_model_gpt_5_4_plus_model(cls, model: str) -> bool:
         """Check if the model is gpt-5.4 or newer (5.4, 5.5, 5.6, etc., including pro)."""
-        model_name = model.split("/")[-1]
-        if not model_name.startswith("gpt-5."):
-            return False
-        try:
-            version_str = model_name.replace("gpt-5.", "").split("-")[0]
-            major = version_str.split(".")[0]
-            return int(major) >= 4
-        except (ValueError, IndexError):
-            return False
+        return cls._gpt_5_minor_version_at_least(model, 4)
+
+    @classmethod
+    def is_model_gpt_5_6_plus_model(cls, model: str) -> bool:
+        """Check if the model is gpt-5.6 or newer (5.6, 5.7, etc., including named/pro variants)."""
+        return cls._gpt_5_minor_version_at_least(model, 6)
 
     @classmethod
     def _supports_reasoning_effort_level(cls, model: str, level: str) -> bool:

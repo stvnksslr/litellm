@@ -1031,6 +1031,69 @@ async def _invoke_failure_hook_with_raised_exception():
 
 
 @pytest.mark.asyncio
+async def test_async_post_call_failure_hook_resolves_model_from_route():
+    """
+    A failure can reject a request before routing, and some routes carry the
+    model in the path rather than the body (Azure deployment-style). The hook
+    should resolve the model from the route so the spend log / Logs UI model
+    column is populated instead of blank.
+    """
+    logger = _ProxyDBLogger()
+
+    user_api_key_dict = UserAPIKeyAuth(
+        api_key="test_api_key",
+        user_id="test_user_id",
+        request_route="/openai/deployments/gpt-4o-mini/chat/completions",
+    )
+
+    # Body carries no model — only the route does
+    request_data = {"messages": [{"role": "user", "content": "Hello"}]}
+
+    with patch(
+        "litellm.proxy.db.db_spend_update_writer.DBSpendUpdateWriter.update_database",
+        new_callable=AsyncMock,
+    ) as mock_update_database:
+        await logger.async_post_call_failure_hook(
+            request_data=request_data,
+            original_exception=Exception("Budget has been exceeded!"),
+            user_api_key_dict=user_api_key_dict,
+        )
+
+        mock_update_database.assert_called_once()
+        assert mock_update_database.call_args[1]["kwargs"]["model"] == "gpt-4o-mini"
+
+
+@pytest.mark.asyncio
+async def test_async_post_call_failure_hook_keeps_body_model_over_route():
+    """A model supplied in the body is kept verbatim, not overwritten by the route."""
+    logger = _ProxyDBLogger()
+
+    user_api_key_dict = UserAPIKeyAuth(
+        api_key="test_api_key",
+        user_id="test_user_id",
+        request_route="/openai/deployments/azure-deployment/chat/completions",
+    )
+
+    request_data = {
+        "model": "gpt-4o-mini",
+        "messages": [{"role": "user", "content": "Hello"}],
+    }
+
+    with patch(
+        "litellm.proxy.db.db_spend_update_writer.DBSpendUpdateWriter.update_database",
+        new_callable=AsyncMock,
+    ) as mock_update_database:
+        await logger.async_post_call_failure_hook(
+            request_data=request_data,
+            original_exception=Exception("Budget has been exceeded!"),
+            user_api_key_dict=user_api_key_dict,
+        )
+
+        mock_update_database.assert_called_once()
+        assert mock_update_database.call_args[1]["kwargs"]["model"] == "gpt-4o-mini"
+
+
+@pytest.mark.asyncio
 async def test_failure_hook_keeps_error_information_traceback_by_default(monkeypatch):
     """Without the opt-in env var, the SpendLogs row carries the full traceback."""
     monkeypatch.delenv("LITELLM_SUPPRESS_SPEND_LOG_TRACEBACKS", raising=False)

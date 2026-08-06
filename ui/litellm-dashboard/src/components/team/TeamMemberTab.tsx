@@ -14,6 +14,7 @@ interface TeamMemberTabProps {
   teamData: TeamData;
   canEditTeam: boolean;
   handleMemberDelete: (member: Member) => void;
+  handleMemberResetSpend: (member: Member) => void;
   setSelectedEditMember: (member: Member) => void;
   setIsEditMemberModalVisible: (visible: boolean) => void;
   setIsAddMemberModalVisible: (visible: boolean) => void;
@@ -23,6 +24,7 @@ export default function TeamMemberTab({
   teamData,
   canEditTeam,
   handleMemberDelete,
+  handleMemberResetSpend,
   setSelectedEditMember,
   setIsEditMemberModalVisible,
   setIsAddMemberModalVisible,
@@ -201,6 +203,8 @@ export default function TeamMemberTab({
         setIsEditMemberModalVisible(true);
       }}
       onDelete={handleMemberDelete}
+      onResetSpend={handleMemberResetSpend}
+      showResetSpendForMember={() => isProxyAdmin || isUserTeamAdmin}
       onAddMember={() => setIsAddMemberModalVisible(true)}
       roleColumnTitle="Team Role"
       roleTooltip="This role applies only to this team and is independent from the user's proxy-level role."

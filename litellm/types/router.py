@@ -157,6 +157,10 @@ class ModelInfo(BaseModel):
     # admin-toggled pause flag; mirrors LiteLLM_ProxyModelTable.blocked
     blocked: Optional[bool] = None
 
+    # admin opt-in: admit requests to this model even when the caller is over
+    # budget. Spend is still tracked; only the pre-call budget gate is relaxed.
+    skip_budget_checks: Optional[bool] = None
+
     def __init__(self, id: Optional[Union[str, int]] = None, **params):
         if id is None:
             id = str(uuid.uuid4())  # Generate a UUID if id is None or not provided

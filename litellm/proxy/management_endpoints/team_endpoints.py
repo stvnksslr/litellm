@@ -59,6 +59,8 @@ from litellm.proxy._types import (
     TeamListResponseObject,
     TeamMemberAddRequest,
     TeamMemberDeleteRequest,
+    TeamMemberResetSpendRequest,
+    TeamMemberResetSpendResponse,
     TeamMemberUpdateRequest,
     TeamMemberUpdateResponse,
     TeamModelAddRequest,
@@ -3018,6 +3020,116 @@ async def team_member_update(
         rpm_limit=data.rpm_limit,
         budget_duration=data.budget_duration,
         allowed_models=data.allowed_models,
+    )
+
+
+def _validate_member_reset_spend_value(reset_to: float, current_spend: float) -> float:
+    if reset_to < 0:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "reset_to must be >= 0"},
+        )
+    if reset_to > current_spend:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": f"reset_to ({reset_to}) must be <= current spend ({current_spend})"},
+        )
+    return reset_to
+
+
+@router.post(
+    "/team/member_reset_spend",
+    tags=["team management"],
+    dependencies=[Depends(user_api_key_auth)],
+    response_model=TeamMemberResetSpendResponse,
+)
+@management_endpoint_wrapper
+async def team_member_reset_spend(
+    data: TeamMemberResetSpendRequest,
+    http_request: Request,
+    user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
+):
+    """
+    Reset a team member's current-cycle spend (the value enforced against their
+    team-member budget). Lifetime ``total_spend`` is left untouched.
+    """
+    from litellm.proxy.common_utils.reset_budget_job import ResetBudgetJob
+    from litellm.proxy.proxy_server import prisma_client
+
+    if prisma_client is None:
+        raise HTTPException(status_code=500, detail={"error": "No db connected"})
+
+    _existing_team_row = await prisma_client.db.litellm_teamtable.find_unique(where={"team_id": data.team_id})
+    if _existing_team_row is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "Team id={} does not exist in db".format(data.team_id)},
+        )
+    existing_team_row = LiteLLM_TeamTable(**_existing_team_row.model_dump())
+
+    if (
+        user_api_key_dict.user_role != LitellmUserRoles.PROXY_ADMIN.value
+        and not _is_user_team_admin(user_api_key_dict=user_api_key_dict, team_obj=existing_team_row)
+        and not await _is_user_org_admin_for_team(user_api_key_dict=user_api_key_dict, team_obj=existing_team_row)
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "Call not allowed. User not proxy admin OR team admin. route={}, team_id={}".format(
+                    "/team/member_reset_spend", existing_team_row.team_id
+                )
+            },
+        )
+
+    received_user_id: Optional[str] = data.user_id
+    if received_user_id is None and data.user_email is not None:
+        returned_team_info: TeamInfoResponseObject = await team_info(
+            http_request=http_request,
+            team_id=data.team_id,
+            user_api_key_dict=user_api_key_dict,
+        )
+        for member in returned_team_info["team_info"].members_with_roles:
+            if member.user_email is not None and member.user_email == data.user_email:
+                received_user_id = member.user_id
+                break
+
+    if received_user_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "User id doesn't exist in team. Data={}".format(data)},
+        )
+
+    membership = await prisma_client.db.litellm_teammembership.find_first(
+        where={"user_id": received_user_id, "team_id": data.team_id},
+        include={"litellm_budget_table": True},
+    )
+    if membership is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "No team membership found for user_id={} in team_id={}".format(received_user_id, data.team_id)
+            },
+        )
+
+    current_spend = membership.spend or 0.0
+    reset_to = _validate_member_reset_spend_value(data.reset_to, current_spend)
+
+    await prisma_client.db.litellm_teammembership.update_many(
+        where={"user_id": received_user_id, "team_id": data.team_id},
+        data={"spend": reset_to},
+    )
+
+    await ResetBudgetJob._invalidate_spend_counter(f"spend:team_member:{received_user_id}:{data.team_id}")
+    await ResetBudgetJob._invalidate_user_api_key_cache_entry(f"{data.team_id}_{received_user_id}")
+
+    budget = membership.litellm_budget_table
+    return TeamMemberResetSpendResponse(
+        team_id=data.team_id,
+        user_id=received_user_id,
+        spend=reset_to,
+        previous_spend=current_spend,
+        max_budget=getattr(budget, "max_budget", None),
+        budget_reset_at=getattr(budget, "budget_reset_at", None),
     )
 
 

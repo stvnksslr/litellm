@@ -163,8 +163,15 @@ class ChunkProcessor:
         model = ChunkProcessor._get_model_from_chunks(chunks, first_chunk_model)
         system_fingerprint = chunk.get("system_fingerprint", None)
 
-        first_chunk_with_choices = next((c for c in chunks if c.get("choices")), chunk)
-        role = first_chunk_with_choices["choices"][0]["delta"]["role"]
+        first_chunk_with_choices = next((c for c in chunks if c.get("choices") and len(c["choices"]) > 0), None)
+        role = "assistant"
+        if first_chunk_with_choices is not None:
+            choice = first_chunk_with_choices["choices"][0]
+            delta = choice.get("delta") if isinstance(choice, dict) else getattr(choice, "delta", None)
+            if isinstance(delta, dict):
+                role = delta.get("role") or role
+            elif delta is not None:
+                role = getattr(delta, "role", None) or role
         finish_reason = "stop"
         for chunk in chunks:
             if "choices" in chunk and len(chunk["choices"]) > 0:

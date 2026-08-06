@@ -7,6 +7,9 @@ import pytest
 sys.path.insert(0, os.path.abspath("../../../../.."))
 
 
+from litellm.completion_extras.litellm_responses_transformation.transformation import (
+    LiteLLMResponsesTransformationHandler,
+)
 from litellm.litellm_core_utils.prompt_templates.factory import (
     THOUGHT_SIGNATURE_SEPARATOR,
 )
@@ -3147,3 +3150,163 @@ def test_translate_anthropic_tools_to_openai_preserves_parameters_type():
     params = new_tools[0]["function"]["parameters"]
     assert params["type"] == "object"
     assert new_tools[0]["type"] == "function"
+
+
+@pytest.mark.parametrize(
+    "anthropic_only_param",
+    [
+        {"defer_loading": True},
+        {"allowed_callers": ["some_tool"]},
+        {"input_examples": [{"location": "SF"}]},
+    ],
+)
+def test_translate_anthropic_tools_to_openai_keeps_anthropic_only_params_out_of_schema(anthropic_only_param):
+    """Same failure mode as #30557: Anthropic tool-level metadata must not be merged
+    into the OpenAI function `parameters`, which is a JSON Schema.
+
+    Claude Code sends `defer_loading` on every tool once tool search is enabled, so
+    this leaked a stray key into the schema of every tool on every request.
+    """
+    adapter = LiteLLMAnthropicMessagesAdapter()
+    input_schema = {
+        "type": "object",
+        "properties": {"location": {"type": "string"}},
+        "required": ["location"],
+    }
+    tools = [
+        {
+            "type": "custom",
+            "name": "get_weather",
+            "description": "Get weather",
+            "input_schema": input_schema,
+            **anthropic_only_param,
+        }
+    ]
+
+    new_tools, _ = adapter.translate_anthropic_tools_to_openai(tools=tools)
+
+    assert new_tools[0]["function"]["parameters"] == input_schema
+    leaked_key = next(iter(anthropic_only_param))
+    assert leaked_key not in new_tools[0]["function"]["parameters"]
+
+
+def test_translate_anthropic_tools_to_openai_still_forwards_computer_tool_kwargs():
+    """Guard against over-correcting the fix above.
+
+    Computer tools carry their sizing as tool-level keys, and the reverse mapping
+    in AnthropicConfig._map_tools reads them back out of function.parameters, so
+    they must keep flowing into the schema dict.
+    """
+    adapter = LiteLLMAnthropicMessagesAdapter()
+    tools = [
+        {
+            "type": "computer_20250124",
+            "name": "computer",
+            "display_width_px": 1024,
+            "display_height_px": 768,
+            "display_number": 1,
+        }
+    ]
+
+    new_tools, _ = adapter.translate_anthropic_tools_to_openai(tools=tools)
+
+    params = new_tools[0]["function"]["parameters"]
+    assert params["display_width_px"] == 1024
+    assert params["display_height_px"] == 768
+    assert params["display_number"] == 1
+
+
+@pytest.mark.parametrize(
+    "tool_result_content",
+    [
+        pytest.param([], id="empty_content_list"),
+        pytest.param(
+            [
+                {
+                    "type": "document",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "application/pdf",
+                        "data": "JVBERi0=",
+                    },
+                }
+            ],
+            id="single_document_block",
+        ),
+        pytest.param(
+            [
+                {"type": "document", "source": {"type": "url", "url": "https://x/a.pdf"}},
+                {"type": "document", "source": {"type": "url", "url": "https://x/b.pdf"}},
+            ],
+            id="multiple_document_blocks",
+        ),
+        pytest.param([{"type": "some_future_block"}], id="unknown_block_type"),
+    ],
+)
+def test_tool_result_without_renderable_content_still_emits_a_tool_message(
+    tool_result_content: Any,
+):
+    """
+    Every tool_use needs exactly one tool message, whatever its result contained.
+
+    Regression: tool_result payloads that yielded no text/image parts (an empty
+    content list, document blocks from a PDF read, unrecognized block types) used
+    to be dropped entirely. Downstream that leaves the assistant's tool call with
+    no result, and bridging to /v1/responses 400s with
+    "No tool output found for function call call_...".
+    """
+    anthropic_messages = [
+        AnthropicMessagesUserMessageParam(role="user", content="read the file"),
+        AnthopicMessagesAssistantMessageParam(
+            role="assistant",
+            content=[
+                {
+                    "type": "tool_use",
+                    "id": "call_orphan_check",
+                    "name": "Read",
+                    "input": {"file_path": "/tmp/a.pdf"},
+                }
+            ],
+        ),
+        AnthropicMessagesUserMessageParam(
+            role="user",
+            content=[
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "call_orphan_check",
+                    "content": tool_result_content,
+                }
+            ],
+        ),
+    ]
+
+    adapter = LiteLLMAnthropicMessagesAdapter()
+    openai_messages = adapter.translate_anthropic_messages_to_openai(messages=anthropic_messages)
+
+    tool_messages = [msg for msg in openai_messages if isinstance(msg, dict) and msg.get("role") == "tool"]
+    assert [msg["tool_call_id"] for msg in tool_messages] == ["call_orphan_check"]
+    assert tool_messages[0]["content"] == ""
+
+    handler = LiteLLMResponsesTransformationHandler()
+    input_items, _ = handler.convert_chat_completion_messages_to_responses_api(openai_messages)
+    call_ids = {item["call_id"] for item in input_items if item.get("type") == "function_call"}
+    output_ids = {item["call_id"] for item in input_items if item.get("type") == "function_call_output"}
+    assert call_ids == {"call_orphan_check"}
+    assert call_ids - output_ids == set(), "function_call left without a function_call_output"
+
+
+def test_tool_result_missing_content_key_still_emits_a_tool_message():
+    anthropic_messages = [
+        AnthropicMessagesUserMessageParam(
+            role="user",
+            content=[{"type": "tool_result", "tool_use_id": "call_no_content_key"}],
+        ),
+    ]
+
+    adapter = LiteLLMAnthropicMessagesAdapter()
+    openai_messages = adapter.translate_anthropic_messages_to_openai(messages=anthropic_messages)
+
+    tool_messages = [msg for msg in openai_messages if isinstance(msg, dict) and msg.get("role") == "tool"]
+    assert len(tool_messages) == 1
+    assert tool_messages[0]["tool_call_id"] == "call_no_content_key"
+    assert tool_messages[0]["content"] == ""

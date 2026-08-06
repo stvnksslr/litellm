@@ -2665,7 +2665,7 @@ def _get_builtin_model_info_for_registration(model: str) -> Optional[ModelInfo]:
     """
     try:
         info = get_model_info(model=model)
-    except Exception:
+    except Exception:  # noqa: BLE001 - model lookup is best-effort, None on any failure
         return None
     if info["key"] in litellm.model_cost:
         return info

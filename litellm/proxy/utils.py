@@ -6272,7 +6272,10 @@ async def get_available_models_for_user(
     Returns:
         List of model names available to the user
     """
-    from litellm.proxy.auth.auth_checks import get_team_object
+    from litellm.proxy.auth.auth_checks import (
+        _get_listed_models_from_access_groups,
+        get_team_object,
+    )
     from litellm.proxy.auth.model_checks import (
         get_complete_model_list,
         get_key_models,
@@ -6298,6 +6301,7 @@ async def get_available_models_for_user(
 
     # Get team models
     team_models: List[str] = user_api_key_dict.team_models
+    team_object = None
 
     # If specific team_id is provided, validate and get team models
     if team_id and prisma_client and proxy_logging_obj and user_api_key_cache:
@@ -6311,14 +6315,34 @@ async def get_available_models_for_user(
         await validate_membership(user_api_key_dict=user_api_key_dict, team_table=team_object)
         team_models = team_object.models
 
+    effective_team_id = team_id or user_api_key_dict.team_id
+    if effective_team_id and prisma_client and proxy_logging_obj and user_api_key_cache:
+        team_obj = (
+            team_object
+            if team_object is not None
+            else await get_team_object(
+                team_id=effective_team_id,
+                prisma_client=prisma_client,
+                user_api_key_cache=user_api_key_cache,
+                proxy_logging_obj=proxy_logging_obj,
+            )
+        )
+        if team_obj.access_group_ids:
+            ag_models = await _get_listed_models_from_access_groups(
+                access_group_ids=team_obj.access_group_ids,
+                prisma_client=prisma_client,
+                user_api_key_cache=user_api_key_cache,
+                proxy_logging_obj=proxy_logging_obj,
+            )
+            if ag_models:
+                team_models = list(team_models) + ag_models
+
     team_models = get_team_models(
         team_models=team_models,
         proxy_model_list=proxy_model_list,
         model_access_groups=model_access_groups,
         include_model_access_groups=include_model_access_groups,
     )
-
-    effective_team_id = team_id or user_api_key_dict.team_id
 
     # Get complete model list
     all_models = get_complete_model_list(

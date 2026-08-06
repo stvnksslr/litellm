@@ -373,6 +373,59 @@ async def test_get_available_models_for_user_with_none_router(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_get_available_models_for_user_with_access_groups_no_team_models(
+    monkeypatch,
+):
+    team_id = "team-1"
+    ag_id = "ag-1"
+    proxy_models = ["gpt-4o", "claude-haiku", "gemini"]
+
+    fake_team = MagicMock()
+    fake_team.models = []
+    fake_team.access_group_ids = [ag_id]
+
+    monkeypatch.setattr(
+        "litellm.proxy.auth.auth_checks.get_team_object",
+        lambda **_k: _async_return(fake_team),
+    )
+    monkeypatch.setattr(
+        "litellm.proxy.auth.auth_checks._get_listed_models_from_access_groups",
+        lambda **_k: _async_return(["gpt-4o"]),
+    )
+    monkeypatch.setattr(
+        "litellm.proxy.management_endpoints.team_endpoints.validate_membership",
+        lambda **_k: _async_return(None),
+    )
+    monkeypatch.setattr(
+        "litellm.proxy.auth.model_checks.get_key_models",
+        lambda **_k: [],
+    )
+    router = _router_with_models(proxy_models)
+    user_api_key_dict = UserAPIKeyAuth(
+        api_key="sk-test-key",
+        user_id="user-1",
+        team_id=team_id,
+        team_models=[],
+    )
+    result = await get_available_models_for_user(
+        user_api_key_dict=user_api_key_dict,
+        llm_router=router,
+        general_settings={},
+        user_model=None,
+        prisma_client=MagicMock(),
+        proxy_logging_obj=MagicMock(),
+        user_api_key_cache=MagicMock(),
+    )
+    assert sorted(result) == ["gpt-4o"]
+    assert "claude-haiku" not in result
+    assert "gemini" not in result
+
+
+async def _async_return(value):
+    return value
+
+
+@pytest.mark.asyncio
 async def test_get_available_models_for_user_error_path_complete_list_raises(
     monkeypatch,
 ):

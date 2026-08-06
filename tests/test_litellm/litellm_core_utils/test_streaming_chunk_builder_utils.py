@@ -16,6 +16,7 @@ from litellm.types.utils import (
     ChatCompletionMessageToolCall,
     Delta,
     Function,
+    ModelResponse,
     ModelResponseStream,
     PromptTokensDetails,
     ServerToolUse,
@@ -631,6 +632,114 @@ def test_get_model_from_chunks_azure_model_router():
 
     # Should return the first chunk's model when all are the same
     assert result_same == "gpt-4"
+
+
+def test_build_base_response_all_empty_choices_does_not_raise():
+    """
+    A stream where no chunk ever carries a non-empty `choices` list (usage-only /
+    keepalive / content-filter chunks) must not crash. Before the fix this raised
+    `IndexError: list index out of range` in build_base_response, which tore down
+    the SSE stream and surfaced to clients as "Response contained no choices".
+    """
+    chunks = [
+        {
+            "id": "chatcmpl-empty-1",
+            "object": "chat.completion.chunk",
+            "created": 1,
+            "model": "glm-5_1",
+            "choices": [],
+        },
+        {
+            "id": "chatcmpl-empty-1",
+            "object": "chat.completion.chunk",
+            "created": 2,
+            "model": "glm-5_1",
+            "choices": [],
+        },
+    ]
+
+    response = stream_chunk_builder(chunks=chunks)
+
+    assert isinstance(response, ModelResponse)
+    assert response.choices[0].message.role == "assistant"
+    assert response.choices[0].message.content == ""
+
+
+def test_build_base_response_picks_role_from_first_nonempty_choices_chunk():
+    """
+    A leading empty-choices chunk must be skipped (not crashed on, not mis-read):
+    role/content/finish_reason come from the chunks that actually carry choices.
+    """
+    chunks = [
+        {
+            "id": "chatcmpl-mixed-1",
+            "object": "chat.completion.chunk",
+            "created": 1,
+            "model": "gpt-5.1",
+            "choices": [],
+        },
+        {
+            "id": "chatcmpl-mixed-1",
+            "object": "chat.completion.chunk",
+            "created": 2,
+            "model": "gpt-5.1",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"role": "assistant", "content": "hi"},
+                    "finish_reason": None,
+                }
+            ],
+        },
+        {
+            "id": "chatcmpl-mixed-1",
+            "object": "chat.completion.chunk",
+            "created": 3,
+            "model": "gpt-5.1",
+            "choices": [
+                {"index": 0, "delta": {"content": None}, "finish_reason": "stop"}
+            ],
+        },
+    ]
+
+    response = stream_chunk_builder(chunks=chunks)
+
+    assert isinstance(response, ModelResponse)
+    assert response.choices[0].message.role == "assistant"
+    assert response.choices[0].message.content == "hi"
+    assert response.choices[0].finish_reason == "stop"
+
+
+def test_build_base_response_object_chunks_leading_empty_choices():
+    """
+    Same as above but with pydantic ModelResponseStream / StreamingChoices chunks
+    (the real type produced during streaming), exercising the object branch of the
+    role lookup rather than the dict branch.
+    """
+    base = {
+        "id": "chatcmpl-obj-1",
+        "object": "chat.completion.chunk",
+        "created": 1,
+        "model": "glm-5_1",
+    }
+    chunks = [
+        ModelResponseStream(**base, choices=[]),
+        ModelResponseStream(
+            **base,
+            choices=[
+                StreamingChoices(
+                    index=0,
+                    delta=Delta(role="assistant", content="hi"),
+                    finish_reason="stop",
+                )
+            ],
+        ),
+    ]
+
+    response = ChunkProcessor(chunks=chunks).build_base_response(chunks)
+
+    assert isinstance(response, ModelResponse)
+    assert response.choices[0].message.role == "assistant"
 
 
 def test_stream_chunk_builder_anthropic_web_search():

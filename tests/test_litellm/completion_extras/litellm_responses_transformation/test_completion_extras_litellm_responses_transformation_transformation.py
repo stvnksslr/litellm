@@ -827,6 +827,75 @@ def test_convert_tools_to_responses_format():
     assert result[0]["name"] == "test"
 
 
+@pytest.mark.parametrize(
+    "hosted_tool",
+    [
+        {"type": "tool_search_tool_regex_20251119", "name": "tool_search"},
+        {"type": "tool_search_tool_bm25_20251119", "name": "tool_search"},
+        {"type": "web_search_20250305", "name": "web_search"},
+        {"type": "bash_20250124", "name": "bash"},
+        {"type": "text_editor_20250124", "name": "str_replace_editor"},
+        {"type": "memory_20250818", "name": "memory"},
+    ],
+)
+def test_convert_tools_to_responses_format_drops_anthropic_hosted_tools(hosted_tool):
+    """Anthropic server-side tools have no /v1/responses equivalent.
+
+    Claude Code sends them on /v1/messages; the Anthropic -> chat completions adapter
+    forwards them verbatim, and forwarding them on to the Responses API returns
+    400 "Invalid value: 'tool_search_tool_regex_20251119' ... param: tools[0].type".
+    """
+    handler = LiteLLMResponsesTransformationHandler()
+
+    function_tool = {
+        "type": "function",
+        "function": {
+            "name": "Bash",
+            "description": "run a command",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    }
+
+    result = handler._convert_tools_to_responses_format([hosted_tool, function_tool])
+
+    assert [tool["type"] for tool in result] == ["function"]
+    assert result[0]["name"] == "Bash"
+
+
+def test_claude_code_tool_search_request_bridges_to_responses_without_hosted_tools():
+    """End-to-end regression: Claude Code + gpt-5.6 must not 400 on tools[0].type."""
+    from litellm.llms.anthropic.experimental_pass_through.adapters.transformation import (
+        LiteLLMAnthropicMessagesAdapter,
+    )
+    from litellm.main import responses_api_bridge_check
+
+    model = "my-org-gpt-5.6-luna-2026-07-09"
+    claude_code_tools = [
+        {"type": "tool_search_tool_regex_20251119", "name": "tool_search"},
+        {
+            "name": "Bash",
+            "description": "run a command",
+            "input_schema": {"type": "object", "properties": {}},
+        },
+    ]
+
+    openai_tools, _ = LiteLLMAnthropicMessagesAdapter().translate_anthropic_tools_to_openai(tools=claude_code_tools)
+
+    model_info, _ = responses_api_bridge_check(
+        model=model,
+        custom_llm_provider="azure",
+        reasoning_effort=None,
+        reasoning_summary=None,
+        tools=openai_tools,
+    )
+    assert model_info.get("mode") == "responses"
+
+    responses_tools = LiteLLMResponsesTransformationHandler()._convert_tools_to_responses_format(openai_tools)
+
+    assert all(tool["type"] == "function" for tool in responses_tools)
+    assert [tool["name"] for tool in responses_tools] == ["Bash"]
+
+
 def test_extract_extra_body_params_reasoning_effort_override():
     """Test that reasoning_effort from extra_body overrides top-level reasoning_effort"""
     from litellm.completion_extras.litellm_responses_transformation.transformation import (

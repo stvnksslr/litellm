@@ -1804,7 +1804,7 @@ export const modelAvailableCall = async (
    * Get all the models user has access to
    */
   try {
-    return await apiClient.get(`/models`, {
+    const response = await apiClient.get(`/models`, {
       accessToken,
       query: {
         include_model_access_groups: "True",
@@ -1814,6 +1814,18 @@ export const modelAvailableCall = async (
         scope: scope || undefined,
       },
     });
+    // Deduplicate by model id preserving order — access groups can expand to
+    // models already present as concrete deployments.
+    if (response && Array.isArray(response.data)) {
+      const seen = new Set<string>();
+      response.data = response.data.filter((m: { id?: string }) => {
+        const id = m?.id;
+        if (id && seen.has(id)) return false;
+        if (id) seen.add(id);
+        return true;
+      });
+    }
+    return response;
   } catch (error) {
     console.error("Failed to create key:", error);
     throw error;
@@ -2928,6 +2940,36 @@ export const teamMemberDeleteCall = async (
     // Handle success - you might want to update some state or UI based on the created key
   } catch (error) {
     console.error("Failed to create key:", error);
+    throw error;
+  }
+};
+
+export const teamMemberResetSpendCall = async (accessToken: string, teamId: string, userId: string) => {
+  try {
+    const url = proxyBaseUrl ? `${proxyBaseUrl}/team/member_reset_spend` : `/team/member_reset_spend`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        [globalLitellmHeaderName]: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        team_id: teamId,
+        user_id: userId,
+        reset_to: 0,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      const errorMessage = deriveErrorMessage(errorData);
+      handleError(errorMessage);
+      throw new Error(errorMessage);
+    }
+
+    return response.json();
+  } catch (error) {
+    console.error("Failed to reset team member spend:", error);
     throw error;
   }
 };

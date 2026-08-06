@@ -783,6 +783,10 @@ async def _common_key_generation_helper(
     # exemption key off what the caller explicitly requested, not a value that
     # default_key_generate_params injected.
     _requested_max_budget = data.max_budget
+    # Same rationale for team_id: capture it before the defaults loop can inject
+    # one from default_key_generate_params, so the session-token exemption below
+    # only fires when the caller actually requested a team key (not a personal
+    # key whose team_id was auto-filled by config defaults).
     _requested_team_id = data.team_id
 
     # check if user set default key/generate params on config.yaml

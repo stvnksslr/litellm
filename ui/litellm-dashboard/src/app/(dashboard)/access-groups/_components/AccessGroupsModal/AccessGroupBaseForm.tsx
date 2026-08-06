@@ -11,6 +11,7 @@ export interface AccessGroupFormValues {
   name: string;
   description: string;
   modelIds: string[];
+  listedModelNames: string[];
   mcpServerIds: string[];
   agentIds: string[];
 }
@@ -70,6 +71,18 @@ export function AccessGroupBaseForm({ form, isNameDisabled = false }: AccessGrou
               context="global"
               value={form.getFieldValue("modelIds") ?? []}
               onChange={(values) => form.setFieldsValue({ modelIds: values })}
+              style={{ width: "100%" }}
+            />
+          </Form.Item>
+          <Form.Item
+            name="listedModelNames"
+            label="Models shown in /v1/models"
+            tooltip="Controls which models appear in the /v1/models listing. Leave empty to list all allowed models. This does not change access."
+          >
+            <ModelSelect
+              context="global"
+              value={form.getFieldValue("listedModelNames") ?? []}
+              onChange={(values) => form.setFieldsValue({ listedModelNames: values })}
               style={{ width: "100%" }}
             />
           </Form.Item>
@@ -137,6 +150,7 @@ export function AccessGroupBaseForm({ form, isNameDisabled = false }: AccessGrou
       name="access_group_form"
       initialValues={{
         modelIds: [],
+        listedModelNames: [],
         mcpServerIds: [],
         agentIds: [],
       }}

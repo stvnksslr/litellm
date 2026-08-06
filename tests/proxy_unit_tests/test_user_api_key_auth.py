@@ -286,6 +286,125 @@ async def test_aaauser_personal_budgets(key_ownership):
         await user_api_key_auth(request=request, api_key="Bearer " + user_key)
 
 
+def test_append_requested_model_to_budget_error():
+    """
+    Budget checks fire during auth, before routing, so most BudgetExceededError
+    messages never name the requested model. The auth exception handler appends
+    it (resolved the same way the budget checks resolve the model) so the model
+    reaches the client response, the proxy logs, and the Logs UI
+    error_information (which records str(exception)).
+    """
+    from litellm.proxy.auth.auth_exception_handler import (
+        UserAPIKeyAuthExceptionHandler,
+    )
+
+    append = UserAPIKeyAuthExceptionHandler._append_requested_model_to_budget_error
+    chat_route = "/v1/chat/completions"
+
+    # Budget error with model in the body -> appended to both message and str()
+    err = litellm.BudgetExceededError(
+        current_cost=20, max_budget=10, message="Key over budget. Spend=20, Limit=10"
+    )
+    append(e=err, request=None, request_data={"model": "gpt-4o-mini"}, route=chat_route)
+    assert "Requested model: gpt-4o-mini" in err.message
+    # str(err) drives get_error_information's error_message in the Logs UI;
+    # this guards the e.args re-sync (mutating only e.message would not update it)
+    assert "Requested model: gpt-4o-mini" in str(err)
+
+    # Model carried in the route path (e.g. Azure deployments), empty body ->
+    # still resolved and appended. request_data.get("model") alone would miss it.
+    path_model = litellm.BudgetExceededError(
+        current_cost=20, max_budget=10, message="Key over budget."
+    )
+    append(
+        e=path_model,
+        request=None,
+        request_data={},
+        route="/openai/deployments/gpt-4o-mini/chat/completions",
+    )
+    assert "Requested model: gpt-4o-mini" in path_model.message
+
+    # Message that already names the model is left untouched (no double-print)
+    already = litellm.BudgetExceededError(
+        current_cost=20,
+        max_budget=10,
+        message="exceeded budget for model=gpt-4o-mini",
+    )
+    append(
+        e=already,
+        request=None,
+        request_data={"model": "gpt-4o-mini"},
+        route=chat_route,
+    )
+    assert already.message == "exceeded budget for model=gpt-4o-mini"
+    assert "Requested model:" not in already.message
+
+    # Non-budget exceptions are never touched
+    other = ValueError("some other auth failure")
+    append(
+        e=other, request=None, request_data={"model": "gpt-4o-mini"}, route=chat_route
+    )
+    assert str(other) == "some other auth failure"
+
+    # No model anywhere in the request -> message unchanged
+    no_model = litellm.BudgetExceededError(
+        current_cost=20, max_budget=10, message="Key over budget."
+    )
+    append(e=no_model, request=None, request_data={}, route=chat_route)
+    assert no_model.message == "Key over budget."
+
+
+@pytest.mark.asyncio
+async def test_budget_error_response_includes_requested_model():
+    """
+    End-to-end through user_api_key_auth: a user-over-budget rejection should
+    surface the model from the request body in the ProxyException returned to
+    the caller.
+    """
+    import json
+    import time
+
+    from fastapi import Request
+    from starlette.datastructures import URL
+
+    from litellm.proxy._types import LiteLLM_UserTable, ProxyException, UserAPIKeyAuth
+    from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
+    from litellm.proxy.proxy_server import hash_token, user_api_key_cache
+
+    _user_id = "budget-model-user"
+    user_key = "sk-budget-model-test"
+    requested_model = "gpt-4o-mini"
+
+    valid_token = UserAPIKeyAuth(
+        token=hash_token(user_key),
+        last_refreshed_at=time.time(),
+        user_id=_user_id,
+        spend=20,
+    )
+    user_obj = LiteLLM_UserTable(
+        user_id=_user_id, spend=11, max_budget=10, user_email=""
+    )
+    user_api_key_cache.set_cache(key=hash_token(user_key), value=valid_token)
+    user_api_key_cache.set_cache(key="{}".format(_user_id), value=user_obj)
+
+    setattr(litellm.proxy.proxy_server, "user_api_key_cache", user_api_key_cache)
+    setattr(litellm.proxy.proxy_server, "master_key", "sk-1234")
+    setattr(litellm.proxy.proxy_server, "prisma_client", "hello-world")
+
+    request = Request(scope={"type": "http"})
+    request._url = URL(url="/chat/completions")
+
+    async def return_body():
+        return bytes(json.dumps({"model": requested_model}), "utf-8")
+
+    request.body = return_body
+
+    with pytest.raises(ProxyException) as exc_info:
+        await user_api_key_auth(request=request, api_key="Bearer " + user_key)
+
+    assert f"Requested model: {requested_model}" in exc_info.value.message
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("prohibited_param", ["api_base", "base_url"])
 async def test_user_api_key_auth_fails_with_prohibited_params(prohibited_param):

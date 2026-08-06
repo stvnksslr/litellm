@@ -1,0 +1,150 @@
+[tasks."backend:dev"]
+description = "Start postgres (docker-compose) + LiteLLM proxy with local config"
+run = """
+docker compose up -d --wait db
+export DATABASE_URL="postgresql://llmproxy:dbpassword9090@localhost:5432/litellm"
+export LITELLM_MASTER_KEY="sk-1234"
+export VERTEX_TOKEN="${VERTEX_TOKEN:-$(gcloud auth print-access-token)}"
+export LITELLM_USE_CHAT_COMPLETIONS_URL_FOR_ANTHROPIC_MESSAGES=true
+exec uv run litellm --config ./litellm_config.yaml --port 4000 --detailed_debug
+"""
+
+[tasks."backend:db:down"]
+description = "Stop the local postgres container"
+run = "docker compose stop db"
+
+[tasks."claude:build"]
+description = "Build the local claude-code-in-docker image"
+run = "docker build -t local/claude-code ./local/claude-code"
+
+[tasks."claude:run"]
+description = "Smoke-test one model via local LiteLLM proxy: `MODEL=<name> mise run claude:run`"
+run = '''
+set +e
+if [ -z "$MODEL" ]; then
+  echo "usage: MODEL=<name> mise run claude:run" >&2
+  exit 2
+fi
+docker image inspect local/claude-code >/dev/null 2>&1 || docker build -t local/claude-code ./local/claude-code
+errfile=$(mktemp)
+stdout=$(docker run --rm \
+  -e ANTHROPIC_BASE_URL="http://host.docker.internal:4000" \
+  -e ANTHROPIC_AUTH_TOKEN="sk-1234" \
+  -e ANTHROPIC_MODEL="$MODEL" \
+  -e ANTHROPIC_SMALL_FAST_MODEL="$MODEL" \
+  -v "$PWD/local/claude-sandbox:/workspace" \
+  -v claude-code-config:/root/.claude \
+  local/claude-code -p "what day is it" 2>"$errfile")
+status=$?
+stderr=$(cat "$errfile"); rm -f "$errfile"
+trimmed=$(printf %s "$stdout" | tr -d '[:space:]')
+if [ $status -eq 0 ] && [ -n "$trimmed" ]; then
+  last=$(printf %s "$stdout" | awk 'NF{line=$0} END{print line}')
+  echo "[PASS] $MODEL :: $last"
+else
+  reason=$(printf %s "$stderr" | awk 'NF{line=$0} END{print line}')
+  echo "[FAIL] $MODEL :: exit=$status stdout=${stdout:-<empty>} stderr_last=${reason:-<empty>}"
+  exit 1
+fi
+'''
+
+[tasks."claude:test-all"]
+description = "Smoke-test every model in the matrix sequentially; print PASS/FAIL summary"
+run = '''
+set +e
+pass=0
+fail=0
+for m in gemma4 gemma4-predict qwen3 qwen3-predict glm5p1 glm5p1-predict; do
+  if MODEL="$m" mise run claude:run; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1))
+  fi
+done
+echo "Summary: $pass passed, $fail failed"
+[ "$fail" -eq 0 ]
+'''
+
+[tasks."claude:test-openai"]
+description = "Smoke-test only the vertex_ai/openai Model Garden variants; print PASS/FAIL summary"
+run = '''
+set +e
+pass=0
+fail=0
+for m in gemma4 qwen3 glm5p1; do
+  if MODEL="$m" mise run claude:run; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1))
+  fi
+done
+echo "Summary: $pass passed, $fail failed"
+[ "$fail" -eq 0 ]
+'''
+
+[tasks."claude:test-predict"]
+description = "Smoke-test only the vertex_ai/gemma predict variants; print PASS/FAIL summary"
+run = '''
+set +e
+pass=0
+fail=0
+for m in gemma4-predict qwen3-predict glm5p1-predict; do
+  if MODEL="$m" mise run claude:run; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1))
+  fi
+done
+echo "Summary: $pass passed, $fail failed"
+[ "$fail" -eq 0 ]
+'''
+
+[tasks."copilot:build"]
+description = "Build the local github-copilot-cli-in-docker image"
+run = "docker build -t local/copilot-cli ./local/copilot-cli"
+
+[tasks."copilot:run"]
+description = "Smoke-test one model via GitHub Copilot CLI (BYOK) against the LiteLLM proxy: `MODEL=<name> mise run copilot:run`. Override COPILOT_PROVIDER_BASE_URL / COPILOT_PROVIDER_API_KEY to target a non-local proxy (e.g. the dev cluster that serves gpt-5.5)."
+run = '''
+set +e
+MODEL="${MODEL:-gpt-5.5}"
+docker image inspect local/copilot-cli >/dev/null 2>&1 || docker build -t local/copilot-cli ./local/copilot-cli
+base_url="${COPILOT_PROVIDER_BASE_URL:-http://host.docker.internal:4000/v1}"
+api_key="${COPILOT_PROVIDER_API_KEY:-sk-1234}"
+mkdir -p "$PWD/local/copilot-sandbox"
+errfile=$(mktemp)
+stdout=$(docker run --rm \
+  -e COPILOT_PROVIDER_BASE_URL="$base_url" \
+  -e COPILOT_PROVIDER_API_KEY="$api_key" \
+  -e COPILOT_MODEL="$MODEL" \
+  -v "$PWD/local/copilot-sandbox:/workspace" \
+  local/copilot-cli -p "what day is it" -s --allow-all-tools 2>"$errfile")
+status=$?
+stderr=$(cat "$errfile"); rm -f "$errfile"
+trimmed=$(printf %s "$stdout" | tr -d '[:space:]')
+if [ $status -eq 0 ] && [ -n "$trimmed" ]; then
+  last=$(printf %s "$stdout" | awk 'NF{line=$0} END{print line}')
+  echo "[PASS] $MODEL :: $last"
+else
+  reason=$(printf %s "$stderr" | awk 'NF{line=$0} END{print line}')
+  echo "[FAIL] $MODEL :: exit=$status stdout=${stdout:-<empty>} stderr_last=${reason:-<empty>}"
+  exit 1
+fi
+'''
+
+[tasks."copilot:test-all"]
+description = "Smoke-test the Copilot model matrix sequentially; print PASS/FAIL summary. Set MODELS=\"a b c\" to override the default (gpt-5.5)."
+run = '''
+set +e
+pass=0
+fail=0
+for m in ${MODELS:-gpt-5.5}; do
+  if MODEL="$m" mise run copilot:run; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1))
+  fi
+done
+echo "Summary: $pass passed, $fail failed"
+[ "$fail" -eq 0 ]
+'''

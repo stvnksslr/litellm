@@ -35,6 +35,23 @@ class _PROXY_MaxBudgetLimiter(CustomLogger):
             if user_api_key_dict.team_id is not None:
                 return
 
+            # Honor zero-cost / admin budget-exempt models, same as the auth
+            # layer. This hook re-checks the user budget the auth layer already
+            # gates on, so without this an exempt model still gets 429'd here.
+            from litellm.proxy.auth.auth_checks import (
+                should_skip_budget_checks_for_model,
+            )
+            from litellm.proxy.proxy_server import llm_router
+
+            request_fallbacks = data.get("fallbacks")
+            if should_skip_budget_checks_for_model(
+                model=data.get("model"),
+                llm_router=llm_router,
+                team_model_aliases=user_api_key_dict.team_model_aliases,
+                request_fallbacks=(request_fallbacks if isinstance(request_fallbacks, list) else None),
+            ):
+                return
+
             # The reservation path admits at the strict-`<` boundary and
             # atomically pre-fills the same counter we'd read here. Re-checking
             # with `>=` would reject a request the reservation already admitted

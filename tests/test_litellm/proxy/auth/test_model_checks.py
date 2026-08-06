@@ -709,3 +709,110 @@ def test_expand_wildcard_invalid_litellm_params_passthrough():
     # Even if LiteLLM_Params construction fails the deployment should survive
     result = expand_wildcard_deployments_for_model_info([deployment])
     assert result == [deployment]
+
+
+def test_get_complete_model_list_dedups_wildcard_overlap():
+    """Access groups/wildcards can expand to models already present as concrete
+    deployments. The final list must not contain duplicates."""
+    from litellm.proxy.auth.model_checks import get_complete_model_list
+    from litellm import Router
+
+    # Router with a wildcard deployment so _get_wildcard_models expands it.
+    router = Router(
+        model_list=[
+            {"model_name": "openai/*", "litellm_params": {"model": "openai/*"}}
+        ]
+    )
+    result = get_complete_model_list(
+        key_models=["openai/gpt-4o"],  # already concrete
+        team_models=[],
+        proxy_model_list=["openai/*"],
+        user_model=None,
+        infer_model_from_keys=False,
+        llm_router=router,
+    )
+    # No duplicates
+    assert len(result) == len(set(result))
+    assert result.count("openai/gpt-4o") == 1
+
+
+def test_get_complete_model_list_dedups_access_group_overlap():
+    """When include_model_access_groups=True, a group name and its members coexist;
+    members listed twice (via group + explicit) must collapse to one entry."""
+    from litellm.proxy.auth.model_checks import get_complete_model_list
+    from litellm import Router
+
+    result = get_complete_model_list(
+        key_models=[],
+        team_models=[],
+        proxy_model_list=["gpt-4o", "claude-3-opus"],
+        user_model=None,
+        infer_model_from_keys=False,
+        llm_router=Router(model_list=[]),
+        model_access_groups={"beta": ["gpt-4o", "claude-3-opus"]},
+        include_model_access_groups=True,
+    )
+    assert len(result) == len(set(result))
+    assert result.count("gpt-4o") == 1
+    assert result.count("claude-3-opus") == 1
+    assert "beta" in result
+
+
+def test_get_complete_model_list_no_default_models_with_access_group_models():
+    """no-default-models sentinel must not surface in the listing when the
+    team has access-group models. Regression for the staging report where
+    /v1/models returned [no-default-models] instead of the 39 access-group
+    models the key could actually call."""
+    from litellm.proxy.auth.model_checks import get_complete_model_list
+    from litellm.proxy._types import SpecialModelNames
+
+    ndm = SpecialModelNames.no_default_models.value
+    result = get_complete_model_list(
+        key_models=[ndm],  # leaked sentinel blocks team_models
+        team_models=[ndm, "ag-model-a", "ag-model-b"],  # access-group models
+        proxy_model_list=["proxy-model"],
+        user_model=None,
+        infer_model_from_keys=False,
+        llm_router=None,
+    )
+    assert ndm not in result
+    assert "proxy-model" not in result  # sentinel suppresses unrestricted fall-through
+    assert set(result) == {"ag-model-a", "ag-model-b"}
+
+
+def test_get_complete_model_list_no_default_models_alone_returns_empty():
+    """no-default-models with no access-group models returns an empty list,
+    not [no-default-models] and not the full proxy list."""
+    from litellm.proxy.auth.model_checks import get_complete_model_list
+    from litellm.proxy._types import SpecialModelNames
+
+    ndm = SpecialModelNames.no_default_models.value
+    result = get_complete_model_list(
+        key_models=[ndm],
+        team_models=[ndm],
+        proxy_model_list=["proxy-model"],
+        user_model=None,
+        infer_model_from_keys=False,
+        llm_router=None,
+    )
+    assert result == []
+
+
+def test_get_complete_model_list_strips_no_default_models_from_team_only():
+    """When team_models carries the sentinel plus real models (e.g. key is
+    unrestricted and team is [no-default-models, ...ag models]), the sentinel
+    is stripped and the real team models surface."""
+    from litellm.proxy.auth.model_checks import get_complete_model_list
+    from litellm.proxy._types import SpecialModelNames
+
+    ndm = SpecialModelNames.no_default_models.value
+    result = get_complete_model_list(
+        key_models=[],
+        team_models=[ndm, "ag-model-a"],
+        proxy_model_list=["proxy-model"],
+        user_model=None,
+        infer_model_from_keys=False,
+        llm_router=None,
+    )
+    assert ndm not in result
+    assert result == ["ag-model-a"]

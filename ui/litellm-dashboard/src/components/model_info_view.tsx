@@ -17,7 +17,7 @@ import {
   Title,
   Button as TremorButton,
 } from "@tremor/react";
-import { Button, Form, Input, Modal, Select, Tooltip } from "antd";
+import { Button, Form, Input, Modal, Select, Switch, Tooltip } from "antd";
 import VectorStoreSelector from "./vector_store_management/VectorStoreSelector";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -422,6 +422,13 @@ export default function ModelInfoView({
             health_check_model: values.health_check_model,
           };
         }
+        // Override skip_budget_checks from the form
+        if (values.skip_budget_checks !== undefined) {
+          updatedModelInfo = {
+            ...updatedModelInfo,
+            skip_budget_checks: values.skip_budget_checks,
+          };
+        }
       } catch (e) {
         NotificationsManager.fromBackend("Invalid JSON in Model Info");
         return;
@@ -791,6 +798,7 @@ export default function ModelInfoView({
                         : undefined,
                     tags: Array.isArray(localModelData.litellm_params?.tags) ? localModelData.litellm_params.tags : [],
                     health_check_model: isWildcardModel ? localModelData.model_info?.health_check_model : null,
+                    skip_budget_checks: localModelData.model_info?.skip_budget_checks ?? false,
                     litellm_credential_name: localModelData.litellm_params?.litellm_credential_name || "",
                     litellm_extra_params: JSON.stringify(
                       Object.fromEntries(
@@ -1056,6 +1064,22 @@ export default function ModelInfoView({
                             ) : (
                               "Not Set"
                             )}
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <Text className="font-medium">Skip budget checks</Text>
+                        <Tooltip title="Admit requests to this model even when the caller is over budget. Spend is still tracked; only the pre-call budget limit is bypassed for this model.">
+                          <InfoCircleOutlined className="ml-1 text-gray-400" />
+                        </Tooltip>
+                        {isEditing ? (
+                          <Form.Item name="skip_budget_checks" valuePropName="checked" className="mb-0 mt-1">
+                            <Switch className="bg-gray-600" />
+                          </Form.Item>
+                        ) : (
+                          <div className="mt-1 p-2 bg-gray-50 rounded">
+                            {localModelData.model_info?.skip_budget_checks ? "Enabled" : "Disabled"}
                           </div>
                         )}
                       </div>

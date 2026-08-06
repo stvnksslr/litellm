@@ -36,6 +36,7 @@ from litellm.responses.sse_output_recovery import (
     record_output_text_chunk,
 )
 from litellm.responses.utils import normalize_responses_api_stream_options
+from litellm.types.llms.anthropic import is_anthropic_hosted_tool_type
 from litellm.types.llms.openai import (
     ChatCompletionAnnotation,
     ChatCompletionReasoningItem,
@@ -870,6 +871,13 @@ class LiteLLMResponsesTransformationHandler(CompletionTransformationBridge):
         """Convert chat completion tools to responses API tools format"""
         responses_tools: List["ALL_RESPONSES_API_TOOL_PARAMS"] = []
         for tool in tools:
+            if is_anthropic_hosted_tool_type(tool.get("type")):
+                verbose_logger.debug(
+                    "Dropping Anthropic hosted tool %s: no /v1/responses equivalent",
+                    tool.get("type"),
+                )
+                continue
+
             # convert function tool from chat completion to responses API format
             if tool.get("type") == "function":
                 function_tool = cast(ChatCompletionToolParamFunctionChunk, tool.get("function"))

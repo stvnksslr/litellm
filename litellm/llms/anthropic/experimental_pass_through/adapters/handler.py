@@ -26,6 +26,7 @@ from litellm.llms.anthropic.experimental_pass_through.context_management import 
 from litellm.llms.anthropic.experimental_pass_through.utils import (
     is_reasoning_auto_summary_enabled,
 )
+from litellm.types.llms.anthropic import is_anthropic_hosted_tool_type
 from litellm.types.llms.anthropic_messages.anthropic_response import (
     AnthropicMessagesResponse,
 )
@@ -480,6 +481,14 @@ class LiteLLMMessagesToCompletionTransformationHandler:
             raise ValueError("Failed to translate request to OpenAI format")
 
         completion_kwargs: Dict[str, Any] = dict(openai_request)
+
+        forwardable_tools = [
+            tool for tool in completion_kwargs.get("tools") or [] if not is_anthropic_hosted_tool_type(tool.get("type"))
+        ]
+        if forwardable_tools:
+            completion_kwargs["tools"] = forwardable_tools
+        else:
+            completion_kwargs.pop("tools", None)
 
         if stream:
             completion_kwargs["stream"] = stream

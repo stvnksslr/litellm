@@ -695,6 +695,17 @@ class ANTHROPIC_HOSTED_TOOLS(str, Enum):
     TOOL_SEARCH_TOOL = "tool_search_tool"
 
 
+def is_anthropic_hosted_tool_type(tool_type: Optional[str]) -> bool:
+    """Return True when ``tool_type`` names an Anthropic server-side tool.
+
+    Hosted tool types carry a date suffix (e.g. ``web_search_20250305``,
+    ``tool_search_tool_regex_20251119``), so match on the family prefix.
+    """
+    if not tool_type:
+        return False
+    return any(tool_type.startswith(hosted.value) for hosted in ANTHROPIC_HOSTED_TOOLS)
+
+
 class ANTHROPIC_BETA_HEADER_VALUES(str, Enum):
     """
     Known beta header values for Anthropic.

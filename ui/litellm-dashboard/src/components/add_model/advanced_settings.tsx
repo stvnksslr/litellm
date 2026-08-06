@@ -262,6 +262,16 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
               <Switch onChange={handlePassThroughChange} className="bg-gray-600" />
             </Form.Item>
 
+            <Form.Item
+              label="Skip budget checks"
+              name="skip_budget_checks"
+              valuePropName="checked"
+              className="mb-4 mt-4"
+              tooltip="Admit requests to this model even when the caller is over budget. Spend is still tracked; only the pre-call budget limit is bypassed for this model."
+            >
+              <Switch className="bg-gray-600" />
+            </Form.Item>
+
             <CacheControlSettings
               form={form}
               showCacheControl={showCacheControl}

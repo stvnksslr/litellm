@@ -198,6 +198,12 @@ def get_complete_model_list(
 
     If list contains wildcard -> return known provider models
     """
+    # no-default-models is a sentinel, not a literal model — strip it so it
+    # never surfaces, and suppress the unrestricted fall-through when set.
+    ndm = SpecialModelNames.no_default_models.value
+    has_no_default_models = ndm in key_models or ndm in team_models
+    key_models = [m for m in key_models if m != ndm]
+    team_models = [m for m in team_models if m != ndm]
 
     unique_models = []
 
@@ -210,7 +216,7 @@ def get_complete_model_list(
         append_unique(key_models)
     elif team_models:
         append_unique(team_models)
-    else:
+    elif not has_no_default_models:
         append_unique(proxy_model_list)
         if include_model_access_groups:
             append_unique(list(model_access_groups.keys()))  # TODO: keys order
@@ -236,7 +242,10 @@ def get_complete_model_list(
         team_id=team_id,
     )
 
-    complete_model_list = unique_models + all_wildcard_models
+    # Deduplicate while preserving order: wildcard expansion (e.g. openai/* ->
+    # openai/gpt-4) can overlap with concrete models already in unique_models,
+    # and multiple access groups or wildcards can resolve to the same model.
+    complete_model_list = list(dict.fromkeys(unique_models + all_wildcard_models))
 
     return complete_model_list
 

@@ -15,7 +15,14 @@ from litellm.proxy._types import (
     UserAPIKeyAuth,
 )
 from litellm.integrations.otel.runtime import seed_request_identity
-from litellm.proxy.auth.auth_utils import _get_request_ip_address
+from litellm.proxy.auth.auth_utils import (
+    _get_request_ip_address,
+    get_model_from_request,
+)
+from litellm.proxy.common_utils.http_parsing_utils import (
+    _safe_get_request_headers,
+    _safe_get_request_query_params,
+)
 from litellm.proxy.db.exception_handler import PrismaDBExceptionHandler
 from litellm.types.services import ServiceTypes
 
@@ -34,6 +41,35 @@ else:
 
 
 class UserAPIKeyAuthExceptionHandler:
+    @staticmethod
+    def _append_requested_model_to_budget_error(e: Exception, request: Request, request_data: dict, route: str) -> None:
+        """
+        Budget checks fire during auth, before the request is routed, so most
+        BudgetExceededError messages never name the model the caller asked for.
+        Append it here, before the failure hook logs the error and before it is
+        converted to a ProxyException, so the requested model reaches the client
+        response, the proxy logs, and the Logs UI error_information.
+
+        get_model_from_request is the same resolver the budget checks use, so the
+        named model matches the one that was evaluated and also covers routes that
+        carry the model in the path or query (e.g. Azure deployments) rather than
+        the body. Re-syncing e.args keeps str(e) in step with e.message, since
+        get_error_information records str(original_exception) as error_message.
+        """
+        if not isinstance(e, litellm.BudgetExceededError):
+            return
+        requested_model = get_model_from_request(
+            request_data=request_data,
+            route=route,
+            request_headers=_safe_get_request_headers(request=request),
+            request_query_params=_safe_get_request_query_params(request=request),
+        )
+        if isinstance(requested_model, list):
+            requested_model = ", ".join(requested_model) if requested_model else None
+        if requested_model and f"model={requested_model}" not in e.message:
+            e.message = f"{e.message} Requested model: {requested_model}"
+            e.args = (e.message,)
+
     @staticmethod
     async def _handle_authentication_error(
         e: Exception,
@@ -89,6 +125,9 @@ class UserAPIKeyAuthExceptionHandler:
                 request_route=route,
             )
         else:
+            UserAPIKeyAuthExceptionHandler._append_requested_model_to_budget_error(
+                e=e, request=request, request_data=request_data, route=route
+            )
             # raise the exception to the caller
             requester_ip = _get_request_ip_address(
                 request=request,

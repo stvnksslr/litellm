@@ -3798,6 +3798,19 @@ class TeamMemberUpdateResponse(MemberUpdateResponse):
     allowed_models: Optional[List[str]] = None
 
 
+class TeamMemberResetSpendRequest(TeamMemberDeleteRequest):
+    reset_to: float = 0.0
+
+
+class TeamMemberResetSpendResponse(LiteLLMPydanticObjectBase):
+    team_id: str
+    user_id: str
+    spend: float
+    previous_spend: float
+    max_budget: Optional[float] = None
+    budget_reset_at: Optional[datetime] = None
+
+
 class TeamModelAddRequest(BaseModel):
     """Request to add models to a team"""
 

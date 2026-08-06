@@ -16,6 +16,7 @@ from typing import (
     cast,
 )
 
+from litellm._logging import verbose_logger
 from litellm.llms.anthropic.experimental_pass_through.utils import (
     is_reasoning_auto_summary_enabled,
 )
@@ -326,6 +327,7 @@ class LiteLLMAnthropicMessagesAdapter:
         return [
             "messages",
             "metadata",
+            "stop_sequences",
             "system",
             "tool_choice",
             "tools",
@@ -1003,6 +1005,16 @@ class LiteLLMAnthropicMessagesAdapter:
         if response_format:
             new_kwargs["response_format"] = response_format
 
+    def _translate_stop_sequences_to_openai(
+        self,
+        anthropic_message_request: AnthropicMessagesRequest,
+        new_kwargs: ChatCompletionRequest,
+    ) -> None:
+        """Translate Anthropic ``stop_sequences`` to the OpenAI ``stop`` param."""
+        stop_sequences = anthropic_message_request.get("stop_sequences")
+        if stop_sequences:
+            new_kwargs["stop"] = stop_sequences  # type: ignore[typeddict-unknown-key]
+
     def _copy_untranslated_anthropic_params(
         self,
         anthropic_message_request: AnthropicMessagesRequest,
@@ -1072,6 +1084,11 @@ class LiteLLMAnthropicMessagesAdapter:
         )
         ## CONVERT OUTPUT_FORMAT to RESPONSE_FORMAT
         self._translate_output_format_to_openai(
+            anthropic_message_request=anthropic_message_request,
+            new_kwargs=new_kwargs,
+        )
+        ## CONVERT STOP_SEQUENCES
+        self._translate_stop_sequences_to_openai(
             anthropic_message_request=anthropic_message_request,
             new_kwargs=new_kwargs,
         )
@@ -1171,15 +1188,25 @@ class LiteLLMAnthropicMessagesAdapter:
                     # Strip Gemini thought-signature suffix and normalize id chars
                     # (e.g. ``functions.Bash:0`` from cross-provider clients).
                     raw_id = tool_call.id or ""
+                    try:
+                        tool_input = parse_tool_call_arguments(
+                            tool_call.function.arguments,
+                            tool_name=original_name,
+                            context="Anthropic pass-through adapter",
+                        )
+                    except ValueError:
+                        verbose_logger.warning(
+                            "Dropping tool_use block for '%s': arguments are unparseable JSON, "
+                            "the model was cut off mid-call. Arguments: %.200s",
+                            original_name,
+                            tool_call.function.arguments,
+                        )
+                        continue
                     tool_use_block = AnthropicResponseContentBlockToolUse(
                         type="tool_use",
                         id=normalize_anthropic_tool_use_id(raw_id),
                         name=original_name,
-                        input=parse_tool_call_arguments(
-                            tool_call.function.arguments,
-                            tool_name=original_name,
-                            context="Anthropic pass-through adapter",
-                        ),
+                        input=tool_input,
                     )
                     # Add provider_specific_fields if signature is present
                     if provider_specific_fields:
@@ -1187,6 +1214,10 @@ class LiteLLMAnthropicMessagesAdapter:
                     new_content.append(tool_use_block.model_dump())
 
         return new_content
+
+    @staticmethod
+    def _count_openai_tool_calls(choices: List[Choices]) -> int:
+        return sum(len(choice.message.tool_calls or []) for choice in choices)
 
     def _translate_openai_finish_reason_to_anthropic(self, openai_finish_reason: str) -> AnthropicFinishReason:
         if openai_finish_reason == "stop":
@@ -1294,12 +1325,20 @@ class LiteLLMAnthropicMessagesAdapter:
             tool_name_mapping=tool_name_mapping,
         )
 
+        dropped_truncated_tool_call = self._count_openai_tool_calls(cast(List[Choices], response.choices)) > sum(
+            1 for block in anthropic_content if block.get("type") == "tool_use"
+        )
+
         if polyfill_result is not None and polyfill_result.compaction_block is not None:
             anthropic_content.insert(0, polyfill_result.compaction_block)  # type: ignore[arg-type]
 
         ## extract finish reason
-        anthropic_finish_reason = self._translate_openai_finish_reason_to_anthropic(
-            openai_finish_reason=response.choices[0].finish_reason  # type: ignore
+        anthropic_finish_reason: AnthropicFinishReason = (
+            "max_tokens"
+            if dropped_truncated_tool_call
+            else self._translate_openai_finish_reason_to_anthropic(
+                openai_finish_reason=response.choices[0].finish_reason  # type: ignore
+            )
         )
         # extract usage
         usage: Usage = getattr(response, "usage")

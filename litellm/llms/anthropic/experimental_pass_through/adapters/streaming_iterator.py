@@ -423,11 +423,15 @@ class AnthropicStreamWrapper(AdapterCompletionStreamWrapper):
                 will_merge_into_held = (
                     self.holding_stop_reason_chunk is not None and getattr(chunk, "usage", None) is not None
                 )
-                is_final_chunk = chunk.choices[0].finish_reason is not None
-                processed_chunk = LiteLLMAnthropicMessagesAdapter().translate_streaming_openai_response_to_anthropic(
-                    response=chunk,
-                    current_content_block_index=self.current_content_block_index,
-                    applied_edits=(self.applied_edits if is_final_chunk and not will_merge_into_held else None),
+                is_final_chunk = bool(chunk.choices) and chunk.choices[0].finish_reason is not None
+                processed_chunk = (
+                    LiteLLMAnthropicMessagesAdapter().translate_streaming_openai_response_to_anthropic(
+                        response=chunk,
+                        current_content_block_index=self.current_content_block_index,
+                        applied_edits=(self.applied_edits if is_final_chunk and not will_merge_into_held else None),
+                    )
+                    if chunk.choices
+                    else None
                 )
 
                 # Check if this is a usage chunk and we have a held stop_reason chunk
@@ -437,6 +441,9 @@ class AnthropicStreamWrapper(AdapterCompletionStreamWrapper):
                     self.queued_usage_chunk = True
                     self.holding_stop_reason_chunk = None
                     return self.chunk_queue.popleft()
+
+                if processed_chunk is None:
+                    continue
 
                 if self.queued_usage_chunk:
                     # Usage has already been merged + emitted. Any trailing
@@ -646,11 +653,15 @@ class AnthropicStreamWrapper(AdapterCompletionStreamWrapper):
                 will_merge_into_held = (
                     self.holding_stop_reason_chunk is not None and getattr(chunk, "usage", None) is not None
                 )
-                is_final_chunk = chunk.choices[0].finish_reason is not None
-                processed_chunk = LiteLLMAnthropicMessagesAdapter().translate_streaming_openai_response_to_anthropic(
-                    response=chunk,
-                    current_content_block_index=self.current_content_block_index,
-                    applied_edits=(self.applied_edits if is_final_chunk and not will_merge_into_held else None),
+                is_final_chunk = bool(chunk.choices) and chunk.choices[0].finish_reason is not None
+                processed_chunk = (
+                    LiteLLMAnthropicMessagesAdapter().translate_streaming_openai_response_to_anthropic(
+                        response=chunk,
+                        current_content_block_index=self.current_content_block_index,
+                        applied_edits=(self.applied_edits if is_final_chunk and not will_merge_into_held else None),
+                    )
+                    if chunk.choices
+                    else None
                 )
 
                 # Check if this is a usage chunk and we have a held stop_reason chunk
@@ -660,6 +671,9 @@ class AnthropicStreamWrapper(AdapterCompletionStreamWrapper):
                     self.queued_usage_chunk = True
                     self.holding_stop_reason_chunk = None
                     return self.chunk_queue.popleft()
+
+                if processed_chunk is None:
+                    continue
 
                 # Check if this processed chunk has a stop_reason - hold it for next chunk
 
@@ -889,7 +903,7 @@ class AnthropicStreamWrapper(AdapterCompletionStreamWrapper):
 
         # Example logic - customize based on your needs:
         # If chunk indicates a tool call
-        if chunk.choices[0].finish_reason is not None:
+        if not chunk.choices or chunk.choices[0].finish_reason is not None:
             return False
 
         (

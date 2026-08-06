@@ -449,6 +449,93 @@ def test_translate_openai_content_to_anthropic_empty_function_arguments():
     ), "Empty function arguments should result in empty dict"
 
 
+def test_translate_anthropic_to_openai_maps_stop_sequences_to_stop():
+    """Anthropic ``stop_sequences`` must become OpenAI ``stop``.
+
+    Passing it through verbatim made OpenAI/Azure reject the whole request with
+    "Unknown parameter: 'stop_sequences'".
+    """
+    adapter = LiteLLMAnthropicMessagesAdapter()
+
+    result, _ = adapter.translate_anthropic_to_openai(
+        anthropic_message_request={
+            "model": "gpt-5.6-luna",
+            "max_tokens": 128,
+            "stop_sequences": ["END", "STOP"],
+            "messages": [{"role": "user", "content": "count to 3"}],
+        }
+    )
+
+    assert result["stop"] == ["END", "STOP"]
+    assert "stop_sequences" not in result
+
+
+def _tool_call_response(arguments: str, finish_reason: str = "tool_calls") -> ModelResponse:
+    return ModelResponse(
+        id="chatcmpl-truncated",
+        choices=[
+            Choices(
+                finish_reason=finish_reason,
+                index=0,
+                message=Message(
+                    role="assistant",
+                    content=None,
+                    tool_calls=[
+                        ChatCompletionAssistantToolCall(
+                            id="call_truncated",
+                            type="function",
+                            function=Function(name="get_weather", arguments=arguments),
+                        )
+                    ],
+                ),
+            )
+        ],
+        model="gpt-5.6-luna",
+        usage=Usage(prompt_tokens=46, completion_tokens=16, total_tokens=62),
+    )
+
+
+def test_translate_openai_response_to_anthropic_drops_truncated_tool_call():
+    """A tool call cut off mid-arguments must degrade to stop_reason=max_tokens, not raise.
+
+    Providers report a truncated tool call as finish_reason="tool_calls" with an
+    unterminated arguments string, so the truncation is only detectable by the
+    arguments failing to parse. Emitting stop_reason="tool_use" with no tool_use
+    block would leave clients waiting for a call that never arrives.
+    """
+    adapter = LiteLLMAnthropicMessagesAdapter()
+
+    result = adapter.translate_openai_response_to_anthropic(response=_tool_call_response('{"city":"Os'))
+
+    assert result["stop_reason"] == "max_tokens"
+    assert [block for block in result["content"] if block["type"] == "tool_use"] == []
+
+
+def test_translate_openai_response_to_anthropic_keeps_intact_tool_call():
+    """The truncation path must not fire for a well-formed tool call."""
+    adapter = LiteLLMAnthropicMessagesAdapter()
+
+    result = adapter.translate_openai_response_to_anthropic(response=_tool_call_response('{"city":"Oslo"}'))
+
+    tool_uses = [block for block in result["content"] if block["type"] == "tool_use"]
+    assert result["stop_reason"] == "tool_use"
+    assert len(tool_uses) == 1
+    assert tool_uses[0]["input"] == {"city": "Oslo"}
+
+
+def test_translate_openai_content_to_anthropic_repairs_unclosed_tool_call_braces():
+    """Arguments missing only a closing brace are still repaired, not dropped."""
+    adapter = LiteLLMAnthropicMessagesAdapter()
+
+    result = adapter._translate_openai_content_to_anthropic(
+        choices=_tool_call_response('{"city":"Oslo"').choices
+    )
+
+    assert len(result) == 1
+    assert result[0]["type"] == "tool_use"
+    assert result[0]["input"] == {"city": "Oslo"}
+
+
 def test_translate_openai_content_to_anthropic_text_and_tool_calls():
     """Ensure content blocks contain both the assistant text + tool call data."""
     openai_choices = [

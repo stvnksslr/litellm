@@ -653,6 +653,33 @@ class LiteLLMResponsesTransformationHandler(CompletionTransformationBridge):
         original_response = model_call_details.get("original_response")
         return cls._recover_output_items_from_raw_sse(original_response)
 
+    @staticmethod
+    def _choices_for_empty_output(
+        model: str,
+        incomplete_reason: Optional[str],
+        output_items: List[Any],
+    ) -> List[Any]:
+        """Build a terminal choice for a Responses API response that produced no usable output."""
+        from litellm.types.utils import Choices, Message
+
+        if incomplete_reason is None:
+            raise ValueError(f"Unknown items in responses API response: {output_items}")
+
+        match incomplete_reason:
+            case "content_filter":
+                finish_reason = "content_filter"
+            case _:
+                finish_reason = "length"
+
+        verbose_logger.warning(
+            "Responses API returned no output items for model=%s (incomplete_details.reason=%s); "
+            "surfacing finish_reason=%s",
+            model,
+            incomplete_reason,
+            finish_reason,
+        )
+        return [Choices(message=Message(content="", role="assistant"), finish_reason=finish_reason, index=0)]
+
     def transform_response(
         self,
         model: str,
@@ -692,13 +719,13 @@ class LiteLLMResponsesTransformationHandler(CompletionTransformationBridge):
         choices = self._convert_response_output_to_choices(
             output_items=output_items,
             handle_raw_dict_callback=self._handle_raw_dict_response_item,
+        ) or self._choices_for_empty_output(
+            model=model,
+            incomplete_reason=(
+                raw_response.incomplete_details.reason if raw_response.incomplete_details is not None else None
+            ),
+            output_items=output_items,
         )
-
-        if len(choices) == 0:
-            if raw_response.incomplete_details is not None and raw_response.incomplete_details.reason is not None:
-                raise ValueError(f"{model} unable to complete request: {raw_response.incomplete_details.reason}")
-            else:
-                raise ValueError(f"Unknown items in responses API response: {output_items}")
 
         setattr(model_response, "choices", choices)
 

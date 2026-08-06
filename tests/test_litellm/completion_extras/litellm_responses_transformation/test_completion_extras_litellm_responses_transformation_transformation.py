@@ -813,6 +813,79 @@ def test_transform_response_prefers_completed_output_from_raw_sse():
     assert result.choices[0].message.content == "Authoritative completed text"
 
 
+def _transform_incomplete_response(reason: str):
+    from openai.types.responses.response import IncompleteDetails
+
+    from litellm.completion_extras.litellm_responses_transformation.transformation import (
+        LiteLLMResponsesTransformationHandler,
+    )
+
+    raw_response = _make_empty_responses_api_response().model_copy(
+        update={
+            "status": "incomplete",
+            "incomplete_details": IncompleteDetails(reason=reason),
+        }
+    )
+    logging_obj = Mock()
+    logging_obj.model_call_details = {}
+
+    return LiteLLMResponsesTransformationHandler().transform_response(
+        model="gpt-5.6-luna",
+        raw_response=raw_response,
+        model_response=_make_empty_model_response(),
+        logging_obj=logging_obj,
+        request_data={"model": "gpt-5.6-luna"},
+        messages=[{"role": "user", "content": "hi"}],
+        optional_params={},
+        litellm_params={},
+        encoding=Mock(),
+    )
+
+
+@pytest.mark.parametrize(
+    "reason, expected_finish_reason",
+    [
+        ("max_output_tokens", "length"),
+        ("content_filter", "content_filter"),
+    ],
+)
+def test_transform_response_incomplete_output_does_not_raise(reason, expected_finish_reason):
+    """A Responses API result with no usable output is a normal terminal state, not an exception.
+
+    Reasoning models routinely spend the whole ``max_output_tokens`` budget before emitting
+    a message. Raising here produced a bare ``ValueError`` with no status code, which the
+    provider exception mappers turned into a 500 ``APIConnectionError``.
+    """
+    result = _transform_incomplete_response(reason)
+
+    assert len(result.choices) == 1
+    assert result.choices[0].finish_reason == expected_finish_reason
+    assert result.choices[0].message.content == ""
+
+
+def test_transform_response_empty_output_without_incomplete_details_still_raises():
+    """Empty output with no reason is still an unexpected state and must stay loud."""
+    from litellm.completion_extras.litellm_responses_transformation.transformation import (
+        LiteLLMResponsesTransformationHandler,
+    )
+
+    logging_obj = Mock()
+    logging_obj.model_call_details = {}
+
+    with pytest.raises(ValueError, match="Unknown items in responses API response"):
+        LiteLLMResponsesTransformationHandler().transform_response(
+            model="gpt-5.6-luna",
+            raw_response=_make_empty_responses_api_response(),
+            model_response=_make_empty_model_response(),
+            logging_obj=logging_obj,
+            request_data={"model": "gpt-5.6-luna"},
+            messages=[{"role": "user", "content": "hi"}],
+            optional_params={},
+            litellm_params={},
+            encoding=Mock(),
+        )
+
+
 def test_convert_tools_to_responses_format():
     from litellm.completion_extras.litellm_responses_transformation.transformation import (
         LiteLLMResponsesTransformationHandler,

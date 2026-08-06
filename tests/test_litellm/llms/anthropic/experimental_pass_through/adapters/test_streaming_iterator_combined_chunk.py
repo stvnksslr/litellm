@@ -143,6 +143,62 @@ def test_delayed_usage_chunk_preserves_cache_tokens():
     assert message_delta["usage"]["cache_creation_input_tokens"] == 20
 
 
+def _stream_with_empty_choices_usage_chunk():
+    """Mimic Azure with ``stream_options.include_usage``: the final usage chunk has no choices."""
+    return [
+        ModelResponseStream(
+            choices=[StreamingChoices(index=0, delta=Delta(content="Two."), finish_reason=None)],
+        ),
+        ModelResponseStream(
+            choices=[StreamingChoices(index=0, delta=Delta(), finish_reason="stop")],
+        ),
+        ModelResponseStream(
+            choices=[],
+            usage=Usage(prompt_tokens=70, completion_tokens=5, total_tokens=75),
+        ),
+    ]
+
+
+def test_usage_chunk_with_empty_choices_does_not_raise():
+    """A chunk carrying only usage must not blow up on ``chunk.choices[0]``.
+
+    litellm sets ``choices = []`` on the trailing usage chunk whenever
+    ``stream_options.include_usage`` is on, which crashed the wrapper with
+    "list index out of range" and surfaced as a 500 mid-stream.
+    """
+    wrapper = AnthropicStreamWrapper(
+        completion_stream=iter(_stream_with_empty_choices_usage_chunk()), model="gpt-5.6-luna"
+    )
+
+    events = list(wrapper)
+
+    message_delta = next(event for event in events if event.get("type") == "message_delta")
+    assert message_delta["usage"]["input_tokens"] == 70
+    assert message_delta["usage"]["output_tokens"] == 5
+    assert "Two." in json.dumps(events)
+
+
+def test_usage_chunk_with_empty_choices_does_not_raise_async():
+    """Same guard on the async path, which is what real streaming clients hit."""
+    wrapper = AnthropicStreamWrapper(
+        completion_stream=_async_iter(_stream_with_empty_choices_usage_chunk()), model="gpt-5.6-luna"
+    )
+
+    sse = _collect_async(wrapper)
+
+    assert "list index out of range" not in sse
+    assert "message_delta" in sse
+    assert "Two." in sse
+
+
+def _async_iter(items) -> AsyncIterator:
+    async def _gen():
+        for item in items:
+            yield item
+
+    return _gen()
+
+
 def test_splitter_passes_through_non_combined_chunks():
     """A chunk with content but no finish_reason is not split."""
     chunk = ModelResponseStream(

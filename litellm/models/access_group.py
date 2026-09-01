@@ -15,6 +15,7 @@ class LiteLLM_AccessGroupTable(LiteLLMPydanticObjectBase):
     access_group_name: str
     description: str | None = None
     access_model_names: list[str] = []
+    listed_model_names: list[str] = []
     access_mcp_server_ids: list[str] = []
     access_agent_ids: list[str] = []
     assigned_team_ids: list[str] = []

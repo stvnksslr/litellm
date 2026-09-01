@@ -12,6 +12,15 @@ from litellm.types.llms.openai import AllMessageValues
 
 from .gpt_transformation import AzureOpenAIConfig
 
+# Azure rejects a smaller budget outright on the non-streaming chat/completions
+# path - "Could not finish the message because max_tokens or model output limit
+# was reached", HTTP 400 - where OpenAI and Anthropic answer with an empty
+# content block and finish_reason "length". Three is the smallest budget Azure
+# accepts, and it still produces that empty-with-length response; raising it
+# further (Microsoft documents 16) would return a real answer and so misreport
+# the cap the caller asked for.
+AZURE_GPT5_MIN_COMPLETION_TOKENS = 3
+
 
 class AzureOpenAIGPT5Config(AzureOpenAIConfig, OpenAIGPT5Config):
     """Azure specific handling for gpt-5 models."""
@@ -136,6 +145,17 @@ class AzureOpenAIGPT5Config(AzureOpenAIConfig, OpenAIGPT5Config):
         # Azure gpt-5.4+ with tools + reasoning_effort is now routed to the
         # Responses API bridge (same as OpenAI), so we no longer need to drop
         # reasoning_effort here.  See: responses_api_bridge_check() in main.py.
+
+        # Applied after the mapping above so it covers a caller-supplied
+        # max_completion_tokens as well as one translated from max_tokens.
+        # Clients probe deployment availability with a 1-token request (Claude
+        # Code does this for /model, verify_api_key and quota_check), and the
+        # 400 makes every Azure gpt-5 deployment look unreachable.
+        requested_completion_tokens = result.get("max_completion_tokens")
+        if isinstance(requested_completion_tokens, int) and 0 < requested_completion_tokens < (
+            AZURE_GPT5_MIN_COMPLETION_TOKENS
+        ):
+            result["max_completion_tokens"] = AZURE_GPT5_MIN_COMPLETION_TOKENS
 
         return result
 

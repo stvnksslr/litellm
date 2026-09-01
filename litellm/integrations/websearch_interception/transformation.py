@@ -9,6 +9,10 @@ from typing import Any, Final
 
 from litellm._logging import verbose_logger
 from litellm.constants import LITELLM_WEB_SEARCH_TOOL_NAME
+from litellm.llms.anthropic.common_utils import (
+    AnthropicWebSearchResult,
+    build_anthropic_web_search_tool_result_block,
+)
 from litellm.llms.base_llm.search.transformation import SearchResponse
 
 
@@ -433,28 +437,19 @@ class WebSearchTransformation:
                 emitted with an empty result list (signals "search ran, no
                 results" rather than "search did not run").
         """
-        items: Final[list[dict[str, Any]]] = []
-        if search_response is not None:
-            results: Final = getattr(search_response, "results", None) or []
-            for r in results:
-                url = getattr(r, "url", "") or ""
-                title = getattr(r, "title", "") or ""
-                page_age = getattr(r, "date", None) or getattr(r, "last_updated", None)
-                items.append(
-                    {
-                        "type": "web_search_result",
-                        "url": url,
-                        "title": title,
-                        "page_age": page_age,
-                        "encrypted_content": "",
-                        "snippet": getattr(r, "snippet", "") or "",
-                    }
+        results: Final = getattr(search_response, "results", None) or ()
+        return build_anthropic_web_search_tool_result_block(
+            tool_use_id=tool_use_id,
+            results=tuple(
+                AnthropicWebSearchResult(
+                    url=getattr(r, "url", "") or "",
+                    title=getattr(r, "title", "") or "",
+                    page_age=getattr(r, "date", None) or getattr(r, "last_updated", None),
+                    snippet=getattr(r, "snippet", "") or "",
                 )
-        return {
-            "type": "web_search_tool_result",
-            "tool_use_id": tool_use_id,
-            "content": items,
-        }
+                for r in results
+            ),
+        )
 
     @staticmethod
     def format_search_response(result: SearchResponse) -> str:

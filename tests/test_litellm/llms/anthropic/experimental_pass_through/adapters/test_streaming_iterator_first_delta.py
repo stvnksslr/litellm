@@ -1026,4 +1026,65 @@ async def test_tool_block_start_flush_does_not_duplicate_or_drop_events(is_async
         "message_stop",
     ]
     assert _input_json_deltas(events) == ['{"file_text":', ' "hello"}']
+
+
+def _usage_only_chunk() -> MagicMock:
+    """Azure emits chunks with an empty ``choices`` list: the content-filter
+    prompt-annotation chunk that leads the stream, and the usage chunk when
+    ``stream_options.include_usage`` is set.
+    """
+    chunk = MagicMock()
+    chunk.choices = []
+    chunk.usage = Usage(prompt_tokens=11, completion_tokens=5, total_tokens=16)
+    chunk._hidden_params = {}
+    return chunk
+
+
+def _empty_choices_lead_chunks() -> List[MagicMock]:
+    return [
+        _usage_only_chunk(),
+        _make_chunk(Delta(content="Hi")),
+        _make_chunk(Delta(content=" there")),
+        _make_chunk(Delta(content=None), finish_reason="stop"),
+    ]
+
+
+def test_is_blank_delta_treats_empty_choices_as_blank():
+    """``_is_blank_delta`` indexed ``chunk.choices[0]`` unguarded while every
+    sibling in the same hot path guards the empty case, so an empty-choices
+    chunk raised IndexError instead of being skipped.
+    """
+    assert AnthropicStreamWrapper._is_blank_delta(_usage_only_chunk()) is True
+
+
+def test_empty_choices_lead_chunk_does_not_crash_the_stream_sync():
+    """An empty-choices chunk arriving before the first content block opens used
+    to raise IndexError out of ``_is_blank_delta``, killing the stream mid-flight.
+    The proxy logged the request as a failure with 0 tokens and $0 spend while
+    the provider had already generated and charged for the tokens, so every
+    occurrence was a silently lost cost as well as a broken response.
+    """
+    wrapper = AnthropicStreamWrapper(
+        completion_stream=iter(_empty_choices_lead_chunks()),
+        model="claude-x",
+    )
+    events = _drain_sync(wrapper)
+
+    assert _text_deltas(events) == ["Hi", " there"]
+    _assert_deltas_match_their_block_type(events)
+
+
+@pytest.mark.asyncio
+async def test_empty_choices_lead_chunk_does_not_crash_the_stream_async():
+    """Async twin, and the path that actually broke in production: the proxy
+    serves the async iterator, so the IndexError surfaced through
+    ``async_anthropic_sse_wrapper`` on live /v1/messages traffic.
+    """
+    wrapper = AnthropicStreamWrapper(
+        completion_stream=_AsyncStream(_empty_choices_lead_chunks()),
+        model="claude-x",
+    )
+    events = await _drain_async(wrapper)
+
+    assert _text_deltas(events) == ["Hi", " there"]
     _assert_deltas_match_their_block_type(events)

@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator, Coroutine, Iterator, Mapping
 from typing import (
     TYPE_CHECKING,
+    Any,
     Final,
     TypeAlias,
     cast,
@@ -23,6 +24,7 @@ from litellm.llms.anthropic.experimental_pass_through.utils import (
     is_reasoning_auto_summary_enabled,
     local_model_name,
 )
+from litellm.types.llms.anthropic import is_anthropic_hosted_tool_type
 from litellm.types.llms.anthropic_messages.anthropic_response import (
     AnthropicMessagesResponse,
 )
@@ -35,6 +37,7 @@ if TYPE_CHECKING:
 
 # Anthropic-only keys already mapped by the translator; strip on extra_kwargs re-merge.
 ANTHROPIC_ONLY_REQUEST_KEYS: Final[frozenset[str]] = frozenset({"output_config"})
+_QWEN_GLM_MODEL_MARKERS: Final[tuple[str, ...]] = ("qwen", "glm")
 
 _AnthropicMessages: TypeAlias = "list[dict[str, object]]"
 _AnthropicSystem: TypeAlias = "str | list[dict[str, object]] | None"
@@ -85,6 +88,60 @@ def _extract_proxy_litellm_metadata(
         return None, None
     user_api_key_auth: Final[UserAPIKeyAuth | None] = litellm_metadata.get("user_api_key_auth")
     return litellm_metadata, user_api_key_auth
+
+
+def _is_qwen_or_glm_deployment(
+    completion_kwargs: Mapping[str, object], extra_kwargs: Mapping[str, object]
+) -> bool:
+    provider: Final = extra_kwargs.get("custom_llm_provider")
+    provider_name: Final = provider.lower() if isinstance(provider, str) else None
+    if provider_name is not None and provider_name not in {"hosted_vllm", "vertex_ai"}:
+        return False
+
+    model_info: Final = extra_kwargs.get("model_info")
+    base_model: Final = model_info.get("base_model") if isinstance(model_info, dict) else None
+    deployment_params: Final = extra_kwargs.get("litellm_params")
+    deployment_model: Final = (
+        deployment_params.get("model") if isinstance(deployment_params, dict) else None
+    )
+    models: Final = (
+        completion_kwargs.get("model"),
+        base_model,
+        deployment_model,
+    )
+    return any(
+        isinstance(candidate, str)
+        and any(marker in candidate.lower() for marker in _QWEN_GLM_MODEL_MARKERS)
+        for candidate in models
+    )
+
+
+def _disable_qwen_or_glm_thinking(
+    completion_kwargs: dict[str, Any],
+    extra_kwargs: Mapping[str, object],
+    thinking: dict | None,
+) -> None:
+    if not _is_qwen_or_glm_deployment(completion_kwargs, extra_kwargs):
+        return
+    if isinstance(thinking, dict) and thinking.get("type") in {"enabled", "adaptive"}:
+        return
+
+    reasoning_effort: Final = completion_kwargs.get("reasoning_effort")
+    if isinstance(reasoning_effort, str) and reasoning_effort != "none":
+        return
+    if isinstance(reasoning_effort, dict) and reasoning_effort.get("effort") not in {None, "none"}:
+        return
+
+    existing_extra_body: Final = completion_kwargs.get("extra_body")
+    extra_body: Final = dict(existing_extra_body) if isinstance(existing_extra_body, dict) else {}
+    existing_chat_template_kwargs: Final = extra_body.get("chat_template_kwargs")
+    chat_template_kwargs: Final = (
+        dict(existing_chat_template_kwargs) if isinstance(existing_chat_template_kwargs, dict) else {}
+    )
+    chat_template_kwargs["enable_thinking"] = False
+    extra_body["enable_thinking"] = False
+    extra_body["chat_template_kwargs"] = chat_template_kwargs
+    completion_kwargs["extra_body"] = extra_body
 
 
 async def _prepare_context_managed_request(
@@ -499,6 +556,23 @@ class LiteLLMMessagesToCompletionTransformationHandler:
 
         completion_kwargs: Final[_CompletionKwargs] = {**openai_request}
 
+        forwardable_tools = [
+            tool for tool in completion_kwargs.get("tools") or [] if not is_anthropic_hosted_tool_type(tool.get("type"))
+        ]
+        if forwardable_tools:
+            completion_kwargs["tools"] = forwardable_tools
+        else:
+            completion_kwargs.pop("tools", None)
+            if tools:
+                # Anthropic server tools are dropped in two places - web_search
+                # becomes ``web_search_options`` during translation, everything
+                # else is stripped just above. A ``tool_choice`` naming one of
+                # them then dangles, and OpenAI-compatible backends reject the
+                # request with "tool_choice is only allowed when tools are
+                # specified".
+                completion_kwargs.pop("tool_choice", None)
+                completion_kwargs.pop("parallel_tool_calls", None)
+
         if stream:
             completion_kwargs["stream"] = stream
             completion_kwargs["stream_options"] = {
@@ -540,6 +614,11 @@ class LiteLLMMessagesToCompletionTransformationHandler:
         # Must run BEFORE _route_openai_thinking, which prepends "responses/"
         # to the model name and would break get_model_info() lookups.
         LiteLLMMessagesToCompletionTransformationHandler._normalize_reasoning_effort(completion_kwargs)
+        _disable_qwen_or_glm_thinking(
+            completion_kwargs=completion_kwargs,
+            extra_kwargs=extra_kwargs,
+            thinking=thinking,
+        )
 
         LiteLLMMessagesToCompletionTransformationHandler._route_openai_thinking_to_responses_api_if_needed(
             completion_kwargs,

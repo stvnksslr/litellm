@@ -3559,11 +3559,13 @@ class Logging(LiteLLMLoggingBaseClass):
         is_async: bool,
         streaming_chunks: list[object],
     ) -> ModelResponse | TextCompletionResponse | ResponsesAPIResponse | None:
-        if self.stream is not True:
-            return None
-        if isinstance(result, ModelResponse) or isinstance(result, TextCompletionResponse):
-            return result
-        elif isinstance(
+        # Unwrap Responses-API terminal events BEFORE the ``self.stream`` guard. Such an
+        # event is only ever produced by a streaming iterator, but ``self.stream`` is not
+        # True when the iterator fakes a stream (MockResponsesAPIStreamingIterator, used
+        # for models with no native streaming). Returning None there makes the caller skip
+        # the whole cost block, and the event itself costs $0 because usage lives on
+        # ``.response.usage`` -- ``getattr(event, "usage", {})`` finds nothing.
+        if isinstance(
             result,
             (ResponseCompletedEvent, ResponseIncompleteEvent, ResponseFailedEvent),
         ):
@@ -3583,8 +3585,11 @@ class Logging(LiteLLMLoggingBaseClass):
                     ),
                 )
             return result.response
-        else:
+        if self.stream is not True:
             return None
+        if isinstance(result, (ModelResponse, TextCompletionResponse)):
+            return result
+        return None
 
     def _handle_anthropic_messages_response_logging(self, result: Any) -> ModelResponse:
         """

@@ -1763,6 +1763,8 @@ def response_cost_calculator(
         "arerank",
         "search",
         "asearch",
+        "get_responses",
+        "aget_responses",
     ],
     optional_params: dict,
     cache_hit: bool | None = None,
@@ -1784,6 +1786,8 @@ def response_cost_calculator(
     Returns
     - float or None: cost of response
     """
+    if call_type in ("get_responses", "aget_responses"):
+        return 0.0
     try:
         response_cost: float = 0.0
         if cache_hit is not None and cache_hit is True:

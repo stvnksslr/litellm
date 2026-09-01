@@ -112,6 +112,8 @@ from litellm.repositories.table_repositories import (
 from litellm.repositories.team_repository import TeamRepository
 from litellm.repositories.user_repository import UserRepository
 from litellm.router import Router
+from litellm.router_utils.fallback_event_handlers import _check_stripped_model_group
+from litellm.types.router import DeploymentTypedDict
 from litellm.utils import get_utc_datetime
 
 from .auth_checks_organization import (
@@ -292,10 +294,16 @@ def _log_budget_lookup_failure(entity: str, error: Exception) -> None:
     )
 
 
-def _get_router_zero_cost_cache(llm_router: Router) -> dict[str, bool] | None:
+def _get_router_zero_cost_cache(
+    llm_router: Router,
+) -> dict[tuple[str | None, str], bool] | None:
     """
     Return the router's per-instance zero-cost cache, or ``None`` for objects
     that don't expose one (e.g. ``MagicMock`` stand-ins in unit tests).
+
+    Keyed by ``(team_id, model_name)``: the same public model name can resolve to
+    a team-scoped deployment for one team and to nothing for another, so a
+    team-blind key would let one team's answer leak into another's.
 
     The cache lives on the ``Router`` instance so it:
         * is invalidated by ``Router._invalidate_model_group_info_cache`` on
@@ -308,7 +316,11 @@ def _get_router_zero_cost_cache(llm_router: Router) -> dict[str, bool] | None:
     return cache if isinstance(cache, dict) else None
 
 
-def _is_model_cost_zero(model: str | list[str] | None, llm_router: Router | None) -> bool:
+def _is_model_cost_zero(
+    model: str | list[str] | None,
+    llm_router: Router | None,
+    team_id: str | None = None,
+) -> bool:
     """
     Check if a model has zero cost (no configured pricing).
 
@@ -317,6 +329,8 @@ def _is_model_cost_zero(model: str | list[str] | None, llm_router: Router | None
     Args:
         model: The model name or list of model names
         llm_router: The LiteLLM router instance
+        team_id: Caller's team, so team-scoped deployments resolve by their
+            ``team_public_model_name``
 
     Returns:
         bool: True if all costs for the model are zero, False otherwise
@@ -330,8 +344,9 @@ def _is_model_cost_zero(model: str | list[str] | None, llm_router: Router | None
     zero_cost_cache: Final = _get_router_zero_cost_cache(llm_router)
 
     for model_name in model_list:
+        cache_key = (team_id, model_name)
         if zero_cost_cache is not None:
-            cached = zero_cost_cache.get(model_name)
+            cached = zero_cost_cache.get(cache_key)
             if cached is not None:
                 if cached is False:
                     return False
@@ -345,7 +360,7 @@ def _is_model_cost_zero(model: str | list[str] | None, llm_router: Router | None
                 # Conservative approach: assume it has cost
                 verbose_proxy_logger.debug("No model group info found for %s, assuming it has cost", model_name)
                 if zero_cost_cache is not None:
-                    zero_cost_cache[model_name] = False
+                    zero_cost_cache[cache_key] = False
                 return False
 
             # Check costs for this model
@@ -362,7 +377,7 @@ def _is_model_cost_zero(model: str | list[str] | None, llm_router: Router | None
                     output_cost,
                 )
                 if zero_cost_cache is not None:
-                    zero_cost_cache[model_name] = False
+                    zero_cost_cache[cache_key] = False
                 return False
 
             # If either cost is non-zero, return False
@@ -371,14 +386,14 @@ def _is_model_cost_zero(model: str | list[str] | None, llm_router: Router | None
                     "Model %s has non-zero cost (input: %s, output: %s)", model_name, input_cost, output_cost
                 )
                 if zero_cost_cache is not None:
-                    zero_cost_cache[model_name] = False
+                    zero_cost_cache[cache_key] = False
                 return False
 
             # Costs are 0 — verify this is from explicit configuration,
             # not from defaulted sparse auto-registration entries.
             # See: https://github.com/BerriAI/litellm/issues/24770
             safe_name = str(model_name).replace("\n", "").replace("\r", "")
-            if not _is_cost_explicitly_configured(model_name, llm_router):
+            if not _is_cost_explicitly_configured(model=model_name, llm_router=llm_router, team_id=team_id):
                 verbose_proxy_logger.debug(
                     "Model %s has zero cost but no explicit cost "
                     "configuration in model_cost entry — treating as unknown "
@@ -386,7 +401,7 @@ def _is_model_cost_zero(model: str | list[str] | None, llm_router: Router | None
                     safe_name,
                 )
                 if zero_cost_cache is not None:
-                    zero_cost_cache[model_name] = False
+                    zero_cost_cache[cache_key] = False
                 return False
 
             if _has_ptu_flat_cost(model_name, llm_router):
@@ -406,7 +421,7 @@ def _is_model_cost_zero(model: str | list[str] | None, llm_router: Router | None
                 output_cost,
             )
             if zero_cost_cache is not None:
-                zero_cost_cache[model_name] = True
+                zero_cost_cache[cache_key] = True
 
         except Exception as e:
             # If we can't determine the cost, assume it has cost (conservative approach)
@@ -435,7 +450,22 @@ def _has_ptu_flat_cost(model: str, llm_router: "Router") -> bool:
     return False
 
 
-def _is_cost_explicitly_configured(model: str, llm_router: "Router") -> bool:
+def _get_deployments_for_model(
+    model: str, llm_router: "Router", team_id: str | None = None
+) -> tuple[DeploymentTypedDict, ...]:
+    """
+    Deployments a request for ``model`` resolves to. Goes through
+    ``Router.get_model_list`` so router ``model_group_alias``, wildcard routes
+    and team-scoped ``team_public_model_name`` deployments all resolve, instead
+    of matching the raw ``model_name`` on each deployment.
+    """
+    try:
+        return tuple(llm_router.get_model_list(model_name=model, team_id=team_id) or ())
+    except Exception:  # noqa: BLE001 - router lookup is best-effort, empty tuple on any failure
+        return ()
+
+
+def _is_cost_explicitly_configured(model: str, llm_router: "Router", team_id: str | None = None) -> bool:
     """
     Check if any deployment in the model group has cost fields explicitly
     set in its litellm.model_cost entry.
@@ -445,16 +475,193 @@ def _is_cost_explicitly_configured(model: str, llm_router: "Router") -> bool:
     fields. _get_model_info_helper() then defaults missing costs to 0.
     This function detects that scenario by checking the raw model_cost entry.
     """
-    for deployment in llm_router.model_list:
-        if deployment.get("model_name") != model:
-            continue
-        model_id = deployment.get("model_info", {}).get("id")
-        if model_id is None:
-            continue
-        raw_entry = litellm.model_cost.get(model_id, {})
-        if "input_cost_per_token" in raw_entry or "output_cost_per_token" in raw_entry:
-            return True
-    return False
+    return any(
+        "input_cost_per_token" in raw_entry or "output_cost_per_token" in raw_entry
+        for raw_entry in (
+            litellm.model_cost.get(model_id, {})
+            for model_id in (
+                (deployment.get("model_info") or {}).get("id")
+                for deployment in _get_deployments_for_model(model=model, llm_router=llm_router, team_id=team_id)
+            )
+            if model_id is not None
+        )
+    )
+
+
+def _is_model_budget_exempt(
+    model: str | list[str] | None,
+    llm_router: Router | None,
+    team_id: str | None = None,
+) -> bool:
+    """
+    True when every requested model group is explicitly marked
+    ``model_info.skip_budget_checks: true`` on all of its deployments.
+
+    This is an admin opt-in (config or UI) to admit requests even when the
+    caller is over budget; spend is still tracked. Unlike _is_model_cost_zero
+    it does not infer intent from cost, so it safely covers models with no or
+    unknown cost without reopening the issue #24770 bypass.
+    """
+    if model is None or llm_router is None:
+        return False
+
+    model_names = [model] if isinstance(model, str) else model
+
+    for model_name in model_names:
+        deployments = _get_deployments_for_model(model=model_name, llm_router=llm_router, team_id=team_id)
+        if not deployments:
+            return False
+        if not all((deployment.get("model_info") or {}).get("skip_budget_checks") for deployment in deployments):
+            return False
+
+    return True
+
+
+def _resolve_request_model(model: str, team_model_aliases: dict[str, str] | None) -> str:
+    """
+    The model name the request will actually route to.
+
+    Mirrors the rewrites applied after auth, in the same order: the team alias
+    map (``update_model_if_team_alias_exists``), then ``litellm.model_alias_map``
+    (``ProxyBaseLLMRequestProcessing``). Router ``model_group_alias`` and wildcard
+    routes are left alone — the router resolves those itself on lookup.
+
+    Resolving to the single routed name, rather than accepting any name in the
+    alias chain, keeps the gate fail-closed: an exempt group that merely shares
+    a name with an alias must not exempt a request that routes elsewhere.
+    """
+    team_resolved = (team_model_aliases or {}).get(model, model)
+    return litellm.model_alias_map.get(team_resolved, team_resolved)
+
+
+def _requested_model_group_names(
+    model: str, llm_router: Router, team_model_aliases: dict[str, str] | None
+) -> frozenset[str]:
+    """
+    Names under which a request for ``model`` can pick up fallbacks: the routed
+    name, plus the group a router ``model_group_alias`` points it at.
+
+    The router looks fallbacks up under the name the client sent
+    (``async_function_with_fallbacks`` reads ``kwargs["model"]``), so today only
+    the first name can match. Including the alias target keeps the gate
+    fail-closed if that ever resolves the alias first — a missed fallback here
+    means an over-budget caller bills a paid model.
+    """
+    routed = _resolve_request_model(model=model, team_model_aliases=team_model_aliases)
+    alias_target = llm_router._get_model_from_alias(model=routed)
+    return frozenset((routed,)) | frozenset((alias_target,) if isinstance(alias_target, str) else ())
+
+
+def _as_fallback_entries(value: object) -> tuple[object, ...]:
+    """
+    Keep only entries shaped like fallbacks: a bare model name, or a
+    ``{model_group: [targets]}`` mapping. Also the validation boundary for the
+    client-supplied ``fallbacks`` field, which is untrusted request-body input.
+    """
+    if not isinstance(value, list):
+        return ()
+    return tuple(entry for entry in value if isinstance(entry, (str, dict)))
+
+
+def _router_fallbacks(llm_router: Router) -> tuple[object, ...]:
+    """Every fallback list the router can route a failed request through."""
+    return (
+        *_as_fallback_entries(getattr(llm_router, "fallbacks", None)),
+        *_as_fallback_entries(getattr(llm_router, "context_window_fallbacks", None)),
+        *_as_fallback_entries(getattr(llm_router, "content_policy_fallbacks", None)),
+    )
+
+
+def _fallback_targets(model: str, fallback_entry: object) -> tuple[str, ...]:
+    """
+    Fallback model groups a single entry offers ``model``.
+
+    Entries are either a bare model name (request-level ``fallbacks: ["gpt-4"]``,
+    which applies to whatever model was requested) or a ``{model_group: [targets]}``
+    mapping, whose key matches on exact name, provider-stripped name, or the
+    ``"*"`` catch-all that ``default_fallbacks`` is stored under.
+    """
+    if isinstance(fallback_entry, str):
+        return (fallback_entry,)
+    if not isinstance(fallback_entry, dict):
+        return ()
+    return tuple(
+        target
+        for key, targets in fallback_entry.items()
+        if isinstance(targets, list)
+        and (key == model or key == "*" or _check_stripped_model_group(model_group=model, fallback_key=key))
+        for target in targets
+        if isinstance(target, str)
+    )
+
+
+def _reachable_model_groups(
+    models: frozenset[str],
+    fallbacks: tuple[object, ...],
+    depth: int = 0,
+) -> frozenset[str]:
+    """
+    Every model group a request for ``models`` can end up billing: the models
+    themselves plus the transitive closure of their fallbacks. Terminates on the
+    fixed point, so fallback cycles are safe; depth-bounded for the same reason
+    _can_object_call_model is.
+    """
+    expanded = models | frozenset(
+        target
+        for model in models
+        for entry in fallbacks
+        for target in _fallback_targets(model=model, fallback_entry=entry)
+    )
+    if expanded == models or depth >= DEFAULT_MAX_RECURSE_DEPTH:
+        return expanded
+    return _reachable_model_groups(models=expanded, fallbacks=fallbacks, depth=depth + 1)
+
+
+def should_skip_budget_checks_for_model(
+    model: str | list[str] | None,
+    llm_router: Router | None,
+    team_id: str | None = None,
+    team_model_aliases: dict[str, str] | None = None,
+    request_fallbacks: list[object] | None = None,
+) -> bool:
+    """
+    Single source of truth for whether budget enforcement is skipped for a
+    request: every model group the request can reach has an explicitly-configured
+    zero cost, or was marked ``model_info.skip_budget_checks: true`` by an admin.
+
+    "Can reach" is the point. Skipping budget checks also skips the budget
+    reservation, so an exemption granted on the requested model would otherwise
+    hand a free pass to whatever paid model it falls back to when the primary
+    attempt fails — including a fallback list the client supplied in the request
+    body. One paid model anywhere in the reachable set means no exemption.
+    """
+    if model is None or llm_router is None:
+        return False
+
+    requested = [model] if isinstance(model, str) else model
+    reachable = _reachable_model_groups(
+        models=frozenset(
+            name
+            for m in requested
+            for name in _requested_model_group_names(
+                model=m,
+                llm_router=llm_router,
+                team_model_aliases=team_model_aliases,
+            )
+        ),
+        fallbacks=(
+            *_as_fallback_entries(request_fallbacks),
+            *_router_fallbacks(llm_router),
+        ),
+    )
+    if not reachable:
+        return False
+
+    return all(
+        _is_model_cost_zero(model=group, llm_router=llm_router, team_id=team_id)
+        or _is_model_budget_exempt(model=group, llm_router=llm_router, team_id=team_id)
+        for group in reachable
+    )
 
 
 _EMPTY_COST_ENTRY: Final[Mapping[str, object]] = MappingProxyType({})
@@ -3545,6 +3752,64 @@ async def _get_models_from_access_groups(
         user_api_key_cache=user_api_key_cache,
         proxy_logging_obj=proxy_logging_obj,
     )
+
+
+async def _get_listed_models_from_access_groups(
+    access_group_ids: Sequence[str],
+    prisma_client: PrismaClient | None = None,
+    user_api_key_cache: UserApiKeyCache | None = None,
+    proxy_logging_obj: ProxyLogging | None = None,
+) -> list[str]:
+    """
+    Collect model names for the /v1/models listing from unified access groups.
+
+    Uses ``listed_model_names`` when non-empty, falling back to
+    ``access_model_names`` so the listing stays in sync with access when no
+    explicit override is configured. Access checks are unaffected — they
+    continue to use :func:`_get_models_from_access_groups`.
+    """
+    if not access_group_ids:
+        return []
+
+    if prisma_client is None or user_api_key_cache is None:
+        from litellm.proxy.proxy_server import (
+            prisma_client as _prisma_client,
+        )
+        from litellm.proxy.proxy_server import (
+            proxy_logging_obj as _proxy_logging_obj,
+        )
+        from litellm.proxy.proxy_server import (
+            user_api_key_cache as _user_api_key_cache,
+        )
+
+        prisma_client = prisma_client or _prisma_client
+        user_api_key_cache = user_api_key_cache or _user_api_key_cache
+        proxy_logging_obj = proxy_logging_obj or _proxy_logging_obj
+
+    if user_api_key_cache is None:
+        return []
+
+    models: list[str] = []
+    for ag_id in access_group_ids:
+        try:
+            ag = await get_access_object(
+                access_group_id=ag_id,
+                prisma_client=prisma_client,
+                user_api_key_cache=user_api_key_cache,
+                proxy_logging_obj=proxy_logging_obj,
+            )
+            listed = getattr(ag, "listed_model_names", None) or []
+            if listed:
+                models.extend(listed)
+            else:
+                models.extend(getattr(ag, "access_model_names", []) or [])
+        except Exception:
+            verbose_proxy_logger.debug(
+                "Could not fetch access group %s for listed model names",
+                ag_id,
+            )
+
+    return list(dict.fromkeys(models))
 
 
 async def _get_mcp_server_ids_from_access_groups(

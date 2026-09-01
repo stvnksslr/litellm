@@ -1237,7 +1237,9 @@ def test_reset_does_not_zero_counter_when_db_write_fails(monkeypatch):
     counter_cache.in_memory_cache.set_cache.assert_not_called()
 
 
-def test_reset_budget_for_keys_writes_only_spend_and_reset_at(reset_budget_job, mock_prisma_client):
+def test_reset_budget_for_keys_writes_only_spend_and_reset_at(
+    reset_budget_job, mock_prisma_client
+):
     """
     Regression for #27730 (the trigger-half).
 

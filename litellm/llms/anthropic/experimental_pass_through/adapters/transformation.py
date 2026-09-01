@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator, Iterator, Mapping
 from typing import TYPE_CHECKING, Any, Final, Literal, TypeVar, cast
 
 import litellm
+from litellm._logging import verbose_logger
 from litellm.llms.anthropic.experimental_pass_through.utils import (
     is_reasoning_auto_summary_enabled,
     prompt_cache_key_from_user_id,
@@ -77,7 +78,6 @@ from litellm.llms.anthropic.experimental_pass_through.context_management import 
     PolyfillResult,
 )
 from litellm.types.llms.anthropic import (
-    ANTHROPIC_HOSTED_TOOLS,
     AllAnthropicPassThroughMessageValues,
     AllAnthropicToolsValues,
     AnthropicFinishReason,
@@ -101,6 +101,8 @@ from litellm.types.llms.anthropic import (
     StreamingContentBlockDeltaType,
     UsageDelta,
     UsageIteration,
+    is_anthropic_hosted_tool_type,
+    is_anthropic_web_search_tool,
 )
 from litellm.types.llms.anthropic_messages.anthropic_response import (
     AnthropicMessagesResponse,
@@ -132,6 +134,21 @@ from .streaming_iterator import AnthropicStreamWrapper
 
 if TYPE_CHECKING:
     from litellm.types.llms.anthropic import ContentBlockContentBlockDict
+
+
+def _model_supports_web_search_options(model: str | None) -> bool:
+    """Whether reducing an Anthropic web search tool to ``web_search_options`` is useful.
+
+    Azure declares ``web_search_options`` supported for every deployment
+    (``azure/chat/gpt_transformation.py``), so an ungated ``{}`` is forwarded to
+    backends that reject it. Only providers that actually map the param -
+    Gemini, Bedrock Nova, xAI, Perplexity - are flagged in the model map.
+    """
+    from litellm.utils import supports_web_search
+
+    if not model:
+        return False
+    return supports_web_search(model=model)
 
 
 class AnthropicAdapter:
@@ -331,32 +348,14 @@ class LiteLLMAnthropicMessagesAdapter:
         return [
             "messages",
             "metadata",
+            "stop_sequences",
             "system",
             "tool_choice",
             "tools",
             "thinking",
             "output_format",
             "output_config",
-            "stop_sequences",
         ]
-
-    def _is_web_search_tool(self, tool: Mapping[str, object]) -> bool:
-        """
-        Check if a tool is an Anthropic web search tool.
-
-        Anthropic web search tools have:
-        - type starting with "web_search" (e.g., "web_search_20260209")
-        - name = "web_search"
-
-        Args:
-            tool: Tool definition dict
-
-        Returns:
-            True if this is a web search tool
-        """
-        tool_type: Final = tool.get("type", "")
-        tool_name: Final = tool.get("name", "")
-        return (isinstance(tool_type, str) and tool_type.startswith("web_search")) or tool_name == "web_search"
 
     def translate_anthropic_messages_to_openai(
         self,
@@ -435,65 +434,26 @@ class LiteLLMAnthropicMessagesAdapter:
                                 # Single-item text keeps the backward-compatible string format; a single
                                 # image or document becomes a structured image_url part
                                 if len(content_items) == 1:
-                                    c = content_items[0]
-                                    if isinstance(c, str):
-                                        tool_result = ChatCompletionToolMessage(
-                                            role="tool",
-                                            tool_call_id=content.get("tool_use_id", ""),
-                                            content=c,
-                                        )
-                                        self._add_cache_control_if_applicable(content, tool_result, model)
-                                        tool_message_list.append(tool_result)
-                                    elif isinstance(c, dict):
-                                        if c.get("type") == "text":
-                                            tool_result = ChatCompletionToolMessage(
-                                                role="tool",
-                                                tool_call_id=content.get("tool_use_id", ""),
-                                                content=c.get("text", ""),
-                                            )
-                                            self._add_cache_control_if_applicable(content, tool_result, model)
-                                            tool_message_list.append(tool_result)
-                                        elif c.get("type") in ("image", "document"):
-                                            image_part = self._tool_result_image_part(c.get("source"))
-                                            tool_result = ChatCompletionToolMessage(
-                                                role="tool",
-                                                tool_call_id=content.get("tool_use_id", ""),
-                                                content=[image_part]  # mutable-ok: content must be a json list
-                                                if image_part
-                                                else "",
-                                            )
-                                            self._add_cache_control_if_applicable(content, tool_result, model)
-                                            tool_message_list.append(tool_result)
+                                    single_content = self._single_tool_result_content(content_items[0])
                                 else:
                                     # For multiple content items, combine into a single tool message
                                     # with list content to preserve all items while having one tool_use_id
-                                    combined_content_parts: list[
-                                        ChatCompletionTextObject | ChatCompletionImageObject
-                                    ] = []
-                                    for c in content_items:
-                                        if isinstance(c, str):
-                                            combined_content_parts.append(ChatCompletionTextObject(type="text", text=c))
-                                        elif isinstance(c, dict):
-                                            if c.get("type") == "text":
-                                                combined_content_parts.append(
-                                                    ChatCompletionTextObject(
-                                                        type="text",
-                                                        text=c.get("text", ""),
-                                                    )
-                                                )
-                                            elif c.get("type") in ("image", "document"):
-                                                image_part = self._tool_result_image_part(c.get("source"))
-                                                if image_part:
-                                                    combined_content_parts.append(image_part)
-                                    # Create a single tool message with combined content
-                                    if combined_content_parts:
-                                        tool_result = ChatCompletionToolMessage(
-                                            role="tool",
-                                            tool_call_id=content.get("tool_use_id", ""),
-                                            content=combined_content_parts,
-                                        )
-                                        self._add_cache_control_if_applicable(content, tool_result, model)
-                                        tool_message_list.append(tool_result)
+                                    combined_content_parts = tuple(
+                                        part
+                                        for part in (self._tool_result_content_part(c) for c in content_items)
+                                        if part is not None
+                                    )
+                                    single_content = list(combined_content_parts) if combined_content_parts else ""
+
+                                # Always emit a tool message: every tool_use needs exactly one tool_result
+                                # downstream, and dropping it orphans the matching tool call.
+                                tool_result = ChatCompletionToolMessage(
+                                    role="tool",
+                                    tool_call_id=content.get("tool_use_id", ""),
+                                    content=single_content,
+                                )
+                                self._add_cache_control_if_applicable(content, tool_result, model)
+                                tool_message_list.append(tool_result)
 
             if len(tool_message_list) > 0:
                 new_messages.extend(tool_message_list)
@@ -749,6 +709,11 @@ class LiteLLMAnthropicMessagesAdapter:
         # merged into the OpenAI function `parameters` schema below, or it
         # overwrites the real parameters.type ("object") and the provider
         # rejects the request. See #30557.
+        anthropic_only_tool_params: Final = (
+            "defer_loading",
+            "allowed_callers",
+            "input_examples",
+        )
         mapped_tool_params: Final = [
             "name",
             "input_schema",
@@ -756,12 +721,13 @@ class LiteLLMAnthropicMessagesAdapter:
             "cache_control",
             "strict",
             "type",
+            *anthropic_only_tool_params,
         ]
 
         for idx, tool in enumerate(tools):
             # Check if this is an Anthropic-native tool that should be kept as-is
             tool_type = tool.get("type", "")
-            if any(tool_type.startswith(t.value) for t in ANTHROPIC_HOSTED_TOOLS):
+            if is_anthropic_hosted_tool_type(tool_type):
                 # Keep Anthropic-native tools in their original format
                 new_tools.append(tool)
                 continue
@@ -1004,12 +970,12 @@ class LiteLLMAnthropicMessagesAdapter:
         regular_tools: Final[list[AllAnthropicToolsValues]] = []
         for tool in tools:
             cast_tool = cast(dict[str, object], tool)
-            if self._is_web_search_tool(cast_tool):
+            if is_anthropic_web_search_tool(cast_tool):
                 web_search_tools.append(cast(AllAnthropicToolsValues, tool))
             else:
                 regular_tools.append(cast(AllAnthropicToolsValues, tool))
 
-        if web_search_tools:
+        if web_search_tools and _model_supports_web_search_options(new_kwargs.get("model")):
             new_kwargs["web_search_options"] = {}
 
         if not regular_tools:
@@ -1095,6 +1061,16 @@ class LiteLLMAnthropicMessagesAdapter:
         if response_format:
             new_kwargs["response_format"] = response_format
 
+    def _translate_stop_sequences_to_openai(
+        self,
+        anthropic_message_request: AnthropicMessagesRequest,
+        new_kwargs: ChatCompletionRequest,
+    ) -> None:
+        """Translate Anthropic ``stop_sequences`` to the OpenAI ``stop`` param."""
+        stop_sequences = anthropic_message_request.get("stop_sequences")
+        if stop_sequences:
+            new_kwargs["stop"] = stop_sequences  # type: ignore[typeddict-unknown-key]
+
     def _copy_untranslated_anthropic_params(
         self,
         anthropic_message_request: AnthropicMessagesRequest,
@@ -1171,6 +1147,11 @@ class LiteLLMAnthropicMessagesAdapter:
             anthropic_message_request=anthropic_message_request,
             new_kwargs=new_kwargs,
         )
+        ## CONVERT STOP_SEQUENCES
+        self._translate_stop_sequences_to_openai(
+            anthropic_message_request=anthropic_message_request,
+            new_kwargs=new_kwargs,
+        )
         self._copy_untranslated_anthropic_params(
             anthropic_message_request=anthropic_message_request,
             new_kwargs=new_kwargs,
@@ -1212,6 +1193,31 @@ class LiteLLMAnthropicMessagesAdapter:
         if not openai_image_url:
             return None
         return ChatCompletionImageObject(type="image_url", image_url=ChatCompletionImageUrlObject(url=openai_image_url))
+
+    def _tool_result_content_part(self, block: object) -> ChatCompletionTextObject | ChatCompletionImageObject | None:
+        if isinstance(block, str):
+            return ChatCompletionTextObject(type="text", text=block)
+        if not isinstance(block, dict):
+            return None
+        if block.get("type") == "text":
+            return ChatCompletionTextObject(type="text", text=str(block.get("text", "")))
+        if block.get("type") in ("image", "document"):
+            return self._tool_result_image_part(block.get("source"))
+        return None
+
+    def _single_tool_result_content(
+        self, block: object
+    ) -> str | list[ChatCompletionTextObject | ChatCompletionImageObject]:
+        """Single-item text keeps the backward-compatible string format; a single image
+        or document becomes a structured image_url part. Unsupported blocks collapse to ""."""
+        if isinstance(block, str):
+            return block
+        if isinstance(block, dict) and block.get("type") in ("image", "document"):
+            image_part = self._tool_result_image_part(block.get("source"))
+            return [image_part] if image_part else ""  # mutable-ok: content must be a json list
+        if isinstance(block, dict) and block.get("type") == "text":
+            return str(block.get("text", ""))
+        return ""
 
     def _translate_openai_content_to_anthropic(
         self,
@@ -1275,15 +1281,25 @@ class LiteLLMAnthropicMessagesAdapter:
                     # Strip Gemini thought-signature suffix and normalize id chars
                     # (e.g. ``functions.Bash:0`` from cross-provider clients).
                     raw_id = tool_call.id or ""
+                    try:
+                        tool_input = parse_tool_call_arguments(
+                            tool_call.function.arguments,
+                            tool_name=original_name,
+                            context="Anthropic pass-through adapter",
+                        )
+                    except ValueError:
+                        verbose_logger.warning(
+                            "Dropping tool_use block for '%s': arguments are unparseable JSON, "
+                            "the model was cut off mid-call. Arguments: %.200s",
+                            original_name,
+                            tool_call.function.arguments,
+                        )
+                        continue
                     tool_use_block = AnthropicResponseContentBlockToolUse(
                         type="tool_use",
                         id=normalize_anthropic_tool_use_id(raw_id),
                         name=original_name,
-                        input=parse_tool_call_arguments(
-                            tool_call.function.arguments,
-                            tool_name=original_name,
-                            context="Anthropic pass-through adapter",
-                        ),
+                        input=tool_input,
                     )
                     # Add provider_specific_fields if signature is present
                     if provider_specific_fields:
@@ -1291,6 +1307,10 @@ class LiteLLMAnthropicMessagesAdapter:
                     new_content.append(tool_use_block.model_dump())
 
         return new_content
+
+    @staticmethod
+    def _count_openai_tool_calls(choices: list[Choices]) -> int:
+        return sum(len(choice.message.tool_calls or []) for choice in choices)
 
     def _translate_openai_finish_reason_to_anthropic(self, openai_finish_reason: str) -> AnthropicFinishReason:
         if openai_finish_reason == "stop":
@@ -1398,12 +1418,20 @@ class LiteLLMAnthropicMessagesAdapter:
             tool_name_mapping=tool_name_mapping,
         )
 
+        dropped_truncated_tool_call = self._count_openai_tool_calls(cast(list[Choices], response.choices)) > sum(
+            1 for block in anthropic_content if block.get("type") == "tool_use"
+        )
+
         if polyfill_result is not None and polyfill_result.compaction_block is not None:
             anthropic_content.insert(0, polyfill_result.compaction_block)
 
         ## extract finish reason
-        anthropic_finish_reason: Final = self._translate_openai_finish_reason_to_anthropic(
-            openai_finish_reason=response.choices[0].finish_reason
+        anthropic_finish_reason: Final[AnthropicFinishReason] = (
+            "max_tokens"
+            if dropped_truncated_tool_call
+            else self._translate_openai_finish_reason_to_anthropic(
+                openai_finish_reason=response.choices[0].finish_reason
+            )
         )
         # extract usage
         usage: Final[Usage] = getattr(response, "usage")

@@ -1,4 +1,5 @@
 import json
+import os
 
 import pytest
 from fastapi.testclient import TestClient
@@ -3517,3 +3518,200 @@ def test_generic_cost_per_token_grok_46_long_context(_local_model_cost_map):
     )
     assert prompt_cost == pytest.approx(200_000 * 4e-06 + 50_000 * 1e-06)
     assert completion_cost == pytest.approx(1_000 * 1.2e-05)
+def test_cache_write_tokens_billed_at_input_rate_when_model_has_no_write_price():
+    """A deployment whose cost entry declares no cache_creation_input_token_cost
+    still reports cache_write_tokens. Cache writes are ordinary input for
+    providers without a write surcharge, so they must bill at the input rate;
+    before the fix they billed at $0, undercharging large agent prompts ~20x
+    (a 30k-token first call recorded $0.000165 instead of ~$0.15).
+    """
+    os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
+    litellm.model_cost = litellm.get_model_cost_map(url="")
+
+    model = "azure/deployment-without-a-declared-write-price"
+    litellm.model_cost[model] = {
+        "input_cost_per_token": 5e-06,
+        "output_cost_per_token": 3e-05,
+        "cache_read_input_token_cost": 5e-07,
+        "litellm_provider": "azure",
+        "mode": "chat",
+    }
+    info = litellm.model_cost[model]
+    assert info.get("cache_creation_input_token_cost") is None
+    input_cost = info["input_cost_per_token"]
+    cache_read_cost = info["cache_read_input_token_cost"]
+    output_cost = info["output_cost_per_token"]
+
+    cached_tokens = 133_535
+    cache_write_tokens = 12_019
+    text_tokens = 3
+    completion_tokens = 750
+    usage = Usage(
+        prompt_tokens=text_tokens + cached_tokens + cache_write_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=text_tokens + cached_tokens + cache_write_tokens + completion_tokens,
+        prompt_tokens_details=PromptTokensDetailsWrapper(
+            cached_tokens=cached_tokens,
+            cache_write_tokens=cache_write_tokens,
+        ),
+    )
+    prompt_cost, completion_cost = generic_cost_per_token(
+        model=model,
+        usage=usage,
+        custom_llm_provider="azure",
+    )
+    expected_prompt = (
+        text_tokens * input_cost
+        + cached_tokens * cache_read_cost
+        + cache_write_tokens * input_cost
+    )
+    assert prompt_cost == pytest.approx(expected_prompt, rel=1e-9)
+    assert completion_cost == pytest.approx(completion_tokens * output_cost, rel=1e-9)
+
+
+def test_cache_write_tokens_keep_explicit_write_price_when_set():
+    """Models that declare cache_creation_input_token_cost (e.g. openai gpt-5.6
+    bills writes at 1.25x) must keep their explicit price; the input-rate
+    fallback only applies when the price is absent.
+    """
+    os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
+    litellm.model_cost = litellm.get_model_cost_map(url="")
+
+    model = "gpt-5.6"
+    info = litellm.model_cost[model]
+    write_cost = info["cache_creation_input_token_cost"]
+    input_cost = info["input_cost_per_token"]
+    assert write_cost != input_cost
+
+    cache_write_tokens = 10_000
+    text_tokens = 100
+    usage = Usage(
+        prompt_tokens=text_tokens + cache_write_tokens,
+        completion_tokens=10,
+        total_tokens=text_tokens + cache_write_tokens + 10,
+        prompt_tokens_details=PromptTokensDetailsWrapper(
+            cached_tokens=0,
+            cache_write_tokens=cache_write_tokens,
+        ),
+    )
+    prompt_cost, _ = generic_cost_per_token(
+        model=model,
+        usage=usage,
+        custom_llm_provider="openai",
+    )
+    expected_prompt = text_tokens * input_cost + cache_write_tokens * write_cost
+    assert prompt_cost == pytest.approx(expected_prompt, rel=1e-9)
+
+
+@pytest.mark.parametrize(
+    "dated_model,base_model_key",
+    [
+        ("gpt-5.6-2026-07-09", "azure/gpt-5.6"),
+        ("gpt-5.6-sol-2026-07-09", "azure/gpt-5.6-sol"),
+        ("gpt-5.6-luna-2026-07-09", "azure/gpt-5.6-luna"),
+        ("gpt-5.6-terra-2026-07-09", "azure/gpt-5.6-terra"),
+    ],
+)
+def test_gpt56_dated_snapshots_resolve_for_azure_cost_tracking(
+    dated_model, base_model_key
+):
+    """Upstream issue #35762: Azure echoes the dated snapshot id (e.g.
+    gpt-5.6-luna-2026-07-09) in response.model, cost resolution looks up the
+    dated id, and the 5.6 family shipped without dated aliases so
+    completion_cost raised "This model isn't mapped yet" and spend logged $0.
+    Every dated alias must exist and carry the same pricing as its base entry.
+    """
+    from litellm.types.utils import Choices, Message, ModelResponse
+
+    os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
+    litellm.model_cost = litellm.get_model_cost_map(url="")
+
+    dated_key = f"azure/{dated_model}"
+    assert litellm.model_cost[dated_key] == litellm.model_cost[base_model_key]
+
+    resp = ModelResponse(
+        model=dated_model,
+        choices=[
+            Choices(
+                index=0,
+                message=Message(role="assistant", content="hi"),
+                finish_reason="stop",
+            )
+        ],
+        usage=Usage(prompt_tokens=100, completion_tokens=50, total_tokens=150),
+    )
+    resp._hidden_params = {"custom_llm_provider": "azure"}
+    cost = litellm.completion_cost(completion_response=resp)
+    info = litellm.model_cost[base_model_key]
+    expected = (
+        100 * info["input_cost_per_token"] + 50 * info["output_cost_per_token"]
+    )
+    assert cost == pytest.approx(expected, rel=1e-9)
+
+
+def test_azure_gpt_5_6_declares_cache_write_price_matching_openai():
+    """The azure gpt-5.6 entries were the only ones in the family without a
+    cache_creation_input_token_cost, while openai and bedrock_mantle both bill
+    writes at 1.25x input. A deployment resolving through base_model therefore
+    priced cache writes at 1x while the same deployment's custom pricing priced
+    them at 1.25x, so identical requests recorded costs 25% apart depending on
+    which entry the worker resolved. Every azure gpt-5.6 entry must declare the
+    1.25x write price for each input tier it prices.
+    """
+    os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
+    litellm.model_cost = litellm.get_model_cost_map(url="")
+
+    azure_keys = tuple(
+        key
+        for key, info in litellm.model_cost.items()
+        if isinstance(info, dict)
+        and info.get("litellm_provider") == "azure"
+        and "gpt-5.6" in key
+    )
+    assert len(azure_keys) == 24
+
+    for key in azure_keys:
+        info = litellm.model_cost[key]
+        tiers = tuple(
+            field[len("input_cost_per_token"):]
+            for field in info
+            if field.startswith("input_cost_per_token") and not field.endswith("_batches")
+        )
+        for tier in tiers:
+            write_cost = info.get(f"cache_creation_input_token_cost{tier}")
+            assert write_cost is not None, f"{key} missing cache_creation_input_token_cost{tier}"
+            assert write_cost == pytest.approx(
+                info[f"input_cost_per_token{tier}"] * 1.25, rel=1e-9
+            ), f"{key} cache_creation_input_token_cost{tier} is not 1.25x input"
+
+
+def test_azure_gpt_5_6_sol_cache_writes_bill_at_declared_write_price():
+    """Regression for the observed split: 71 sol rows billed writes at $6.25/M
+    (deployment custom pricing) and 39 at $5.00/M (azure map entry, priced by
+    the input-rate fallback) within the same half hour on one deployment. The
+    azure map entry must resolve the declared 1.25x write price, not the
+    input-rate fallback.
+    """
+    os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
+    litellm.model_cost = litellm.get_model_cost_map(url="")
+
+    cached_tokens = 35_708
+    cache_write_tokens = 61_431
+    text_tokens = 3
+    usage = Usage(
+        prompt_tokens=text_tokens + cached_tokens + cache_write_tokens,
+        completion_tokens=54,
+        total_tokens=text_tokens + cached_tokens + cache_write_tokens + 54,
+        prompt_tokens_details=PromptTokensDetailsWrapper(
+            cached_tokens=cached_tokens,
+            cache_write_tokens=cache_write_tokens,
+        ),
+    )
+    azure_prompt_cost, _ = generic_cost_per_token(
+        model="azure/gpt-5.6-sol", usage=usage, custom_llm_provider="azure"
+    )
+
+    assert azure_prompt_cost == pytest.approx(
+        text_tokens * 5e-06 + cached_tokens * 5e-07 + cache_write_tokens * 6.25e-06,
+        rel=1e-9,
+    )

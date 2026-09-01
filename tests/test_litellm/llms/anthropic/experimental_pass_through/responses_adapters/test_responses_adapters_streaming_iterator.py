@@ -302,3 +302,244 @@ class TestResponseCompletedUsage:
             "cache_creation_input_tokens": 10,
             "cache_read_input_tokens": 4004,
         }
+
+
+CITATION = {
+    "type": "url_citation",
+    "url": "https://github.com/BerriAI/litellm/releases",
+    "title": "Releases",
+}
+
+# The shape Claude Code's standalone web-search sub-request produces once
+# /v1/messages is routed to the Responses API: a hosted web_search_call, then
+# the answer text carrying the sources as url_citation annotations.
+#
+# Captured verbatim from a live azure/gpt-5.6 deployment. The `added` event
+# carries only id/type/status - the `action`, and therefore both the query and
+# whether this is a search at all, arrives only on `done`. `action.sources` is
+# null, so sources reach the client solely as url_citation annotations on the
+# text that follows.
+SEARCH_CALL_ADDED = {"id": "ws_1", "type": "web_search_call", "status": "in_progress"}
+SEARCH_CALL_DONE = {
+    "id": "ws_1",
+    "type": "web_search_call",
+    "status": "completed",
+    "action": {
+        "type": "search",
+        "query": "latest litellm release",
+        "queries": ["latest litellm release"],
+        "sources": None,
+    },
+}
+WEB_SEARCH_EVENTS = [
+    {"type": "response.created"},
+    {"type": "response.output_item.added", "item": SEARCH_CALL_ADDED},
+    {"type": "response.web_search_call.in_progress", "item_id": "ws_1"},
+    {"type": "response.web_search_call.searching", "item_id": "ws_1"},
+    {"type": "response.web_search_call.completed", "item_id": "ws_1"},
+    {"type": "response.output_item.done", "item": SEARCH_CALL_DONE},
+    {"type": "response.output_item.added", "item": {"id": "msg_1", "type": "message"}},
+    {"type": "response.output_text.delta", "item_id": "msg_1", "delta": "The latest release "},
+    {"type": "response.output_text.annotation.added", "item_id": "msg_1", "annotation": CITATION},
+    {"type": "response.output_text.delta", "item_id": "msg_1", "delta": "is v1.96.0."},
+    {"type": "response.output_item.done", "item": {"id": "msg_1", "type": "message"}},
+    {"type": "response.completed", "response": {"status": "completed", "output": []}},
+]
+
+
+def _with_annotation(annotation: dict, repeat: int = 1) -> list:
+    """WEB_SEARCH_EVENTS with its url_citation swapped for ``annotation``."""
+    return [
+        event
+        for original in WEB_SEARCH_EVENTS
+        for event in (
+            [{**original, "annotation": annotation}] * repeat
+            if original["type"] == "response.output_text.annotation.added"
+            else [original]
+        )
+    ]
+
+
+class TestHostedWebSearchStreaming:
+    """A provider-run web search must reach the client as Anthropic-native blocks.
+
+    Without this the search happens but the client sees only naked text: the
+    ``web_search_call`` item matches no branch, so no ``server_tool_use`` block
+    is opened and the ``url_citation`` annotations carrying the sources are
+    dropped entirely.
+    """
+
+    def test_block_is_emitted_from_done_not_added(self):
+        """The added event has no action, so nothing can be decided from it.
+
+        Emitting the block on added would produce a server_tool_use with an empty
+        query, and could not tell a search from a page fetch at all.
+        """
+        added_only = _drain_async(
+            [
+                {"type": "response.created"},
+                {"type": "response.output_item.added", "item": SEARCH_CALL_ADDED},
+                {"type": "response.completed", "response": {"status": "completed", "output": []}},
+            ]
+        )
+        assert [c for c in added_only if c["type"] == "content_block_start"] == []
+
+    def test_web_search_call_opens_server_tool_use_block(self):
+        chunks = _drain_async(WEB_SEARCH_EVENTS)
+        starts = [c for c in chunks if c["type"] == "content_block_start"]
+        assert starts[0]["content_block"] == {
+            "type": "server_tool_use",
+            "id": "ws_1",
+            "name": "web_search",
+            "input": {},
+        }
+
+    def test_search_query_is_streamed_as_input_json_delta(self):
+        chunks = _drain_async(WEB_SEARCH_EVENTS)
+        deltas = [c for c in chunks if c.get("delta", {}).get("type") == "input_json_delta"]
+        assert [d["delta"]["partial_json"] for d in deltas] == ['{"query": "latest litellm release"}']
+
+    def test_citations_become_a_paired_web_search_tool_result_block(self):
+        chunks = _drain_async(WEB_SEARCH_EVENTS)
+        results = [
+            c["content_block"]
+            for c in chunks
+            if c["type"] == "content_block_start" and c["content_block"]["type"] == "web_search_tool_result"
+        ]
+        assert results == [
+            {
+                "type": "web_search_tool_result",
+                "tool_use_id": "ws_1",
+                "content": [
+                    {
+                        "type": "web_search_result",
+                        "url": "https://github.com/BerriAI/litellm/releases",
+                        "title": "Releases",
+                        "page_age": None,
+                        "encrypted_content": "",
+                        "snippet": "",
+                    }
+                ],
+            }
+        ]
+
+    def test_sources_reported_on_the_search_call_are_used(self):
+        """Some api-versions attach sources to the call instead of annotating the text."""
+        events = [
+            {"type": "response.created"},
+            {"type": "response.output_item.added", "item": SEARCH_CALL_ADDED},
+            {
+                "type": "response.output_item.done",
+                "item": {
+                    "id": "ws_1",
+                    "type": "web_search_call",
+                    "action": {
+                        "type": "search",
+                        "query": "q",
+                        "sources": [{"type": "url", "url": "https://example.com", "title": "Example"}],
+                    },
+                },
+            },
+            {"type": "response.completed", "response": {"status": "completed", "output": []}},
+        ]
+        chunks = _drain_async(events)
+        results = [
+            c["content_block"]
+            for c in chunks
+            if c["type"] == "content_block_start" and c["content_block"]["type"] == "web_search_tool_result"
+        ]
+        assert results[0]["content"] == [
+            {
+                "type": "web_search_result",
+                "url": "https://example.com",
+                "title": "Example",
+                "page_age": None,
+                "encrypted_content": "",
+                "snippet": "",
+            }
+        ]
+
+    def test_duplicate_citations_are_reported_once(self):
+        events = _with_annotation(CITATION, repeat=2)
+        chunks = _drain_async(events)
+        result = next(
+            c["content_block"]
+            for c in chunks
+            if c["type"] == "content_block_start" and c["content_block"]["type"] == "web_search_tool_result"
+        )
+        assert len(result["content"]) == 1
+
+    def test_non_web_annotations_are_ignored(self):
+        events = _with_annotation({"type": "file_citation", "file_id": "f_1", "filename": "notes.md"})
+        chunks = _drain_async(events)
+        result = next(
+            c["content_block"]
+            for c in chunks
+            if c["type"] == "content_block_start" and c["content_block"]["type"] == "web_search_tool_result"
+        )
+        assert result["content"] == []
+
+    def test_page_fetches_open_no_block_and_do_not_shift_indices(self):
+        """Azure interleaves ``open_page`` web_search_call items between the real
+        searches. They are not searches, and opening a block for them would both
+        emit a query-less server_tool_use and shift every later block index."""
+        events = [
+            *WEB_SEARCH_EVENTS[:6],
+            {
+                "type": "response.output_item.added",
+                "item": {"id": "ws_fetch", "type": "web_search_call", "status": "in_progress"},
+            },
+            {
+                "type": "response.output_item.done",
+                "item": {
+                    "id": "ws_fetch",
+                    "type": "web_search_call",
+                    "status": "completed",
+                    "action": {"type": "open_page", "url": "https://github.com/BerriAI/litellm/releases/latest"},
+                },
+            },
+            *WEB_SEARCH_EVENTS[6:],
+        ]
+        chunks = _drain_async(events)
+        server_tool_uses = [
+            c["content_block"]
+            for c in chunks
+            if c["type"] == "content_block_start" and c["content_block"]["type"] == "server_tool_use"
+        ]
+        assert [b["id"] for b in server_tool_uses] == ["ws_1"]
+        assert [(c["type"], c["index"]) for c in chunks if c["type"] == "content_block_start"] == [
+            ("content_block_start", 0),
+            ("content_block_start", 1),
+            ("content_block_start", 2),
+        ]
+        starts = sorted(c["index"] for c in chunks if c["type"] == "content_block_start")
+        assert starts == sorted(c["index"] for c in chunks if c["type"] == "content_block_stop")
+
+    def test_every_opened_block_is_closed_exactly_once(self):
+        chunks = _drain_async(WEB_SEARCH_EVENTS)
+        starts = sorted(c["index"] for c in chunks if c["type"] == "content_block_start")
+        stops = sorted(c["index"] for c in chunks if c["type"] == "content_block_stop")
+        assert starts == stops
+        assert len(starts) == len(set(starts))
+
+
+class TestOutputItemDoneDoesNotCloseForeignBlocks:
+    """``output_item.done`` used to fall back to ``_current_block_index`` for any
+    item it had no block for, so an unsupported hosted-tool item closed whichever
+    block happened to be open. The text block then received deltas after its own
+    ``content_block_stop``, which strict Anthropic clients reject."""
+
+    def test_unopened_item_does_not_close_the_open_text_block(self):
+        chunks = _process_all(
+            [
+                {"type": "response.output_item.added", "item": {"type": "message", "id": "msg_1"}},
+                {"type": "response.output_text.delta", "item_id": "msg_1", "delta": "Hi"},
+                {"type": "response.output_item.done", "item": {"id": "ci_1", "type": "code_interpreter_call"}},
+                {"type": "response.output_text.delta", "item_id": "msg_1", "delta": " there"},
+            ]
+        )
+        assert [c["type"] for c in chunks] == [
+            "content_block_start",
+            "content_block_delta",
+            "content_block_delta",
+        ]

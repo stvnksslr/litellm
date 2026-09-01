@@ -3683,3 +3683,48 @@ def test_completion_cost_prices_anthropic_shaped_cache_read_tokens(_local_model_
     )
 
     assert cost == pytest.approx(3 * 4e-6 + 4014 * 4e-7 + 5 * 2e-5, rel=1e-9)
+
+
+def test_response_retrieval_calls_cost_zero():
+    """Regression: GET /v1/responses/{id} polls of a completed background
+    response were billed the full response usage on every poll, charging the
+    same response 2-4x while the client waited. Retrieving a stored response
+    incurs no provider inference cost, so retrieval call types must cost $0
+    while the same response object still bills normally for aresponses.
+    """
+    from litellm.cost_calculator import response_cost_calculator
+    from litellm.types.llms.openai import ResponseAPIUsage, ResponsesAPIResponse
+
+    response = ResponsesAPIResponse(
+        id="resp_abc123",
+        created_at=1700000000,
+        model="gpt-5.1",
+        output=[],
+        usage=ResponseAPIUsage(
+            input_tokens=1000, output_tokens=500, total_tokens=1500
+        ),
+    )
+
+    common_kwargs = dict(
+        model="gpt-5.1",
+        custom_llm_provider="openai",
+        optional_params={},
+    )
+    for retrieval_call_type in ("get_responses", "aget_responses"):
+        assert (
+            response_cost_calculator(
+                response_object=response,
+                call_type=retrieval_call_type,
+                **common_kwargs,
+            )
+            == 0.0
+        )
+
+    assert (
+        response_cost_calculator(
+            response_object=response,
+            call_type="aresponses",
+            **common_kwargs,
+        )
+        > 0.0
+    )

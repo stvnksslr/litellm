@@ -14344,6 +14344,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/team/member_reset_spend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Team Member Reset Spend
+         * @description Reset a team member's current-cycle spend (the value enforced against their
+         *     team-member budget). Lifetime ``total_spend`` is left untouched.
+         */
+        post: operations["team_member_reset_spend_team_member_reset_spend_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/team/member_update": {
         parameters: {
             query?: never;
@@ -21379,6 +21400,8 @@ export interface components {
             assigned_team_ids?: string[] | null;
             /** Description */
             description?: string | null;
+            /** Listed Model Names */
+            listed_model_names?: string[] | null;
         };
         /** AccessGroupInfo */
         AccessGroupInfo: {
@@ -21414,6 +21437,8 @@ export interface components {
             created_by?: string | null;
             /** Description */
             description?: string | null;
+            /** Listed Model Names */
+            listed_model_names: string[];
             /**
              * Updated At
              * Format: date-time
@@ -21438,6 +21463,8 @@ export interface components {
             assigned_team_ids?: string[] | null;
             /** Description */
             description?: string | null;
+            /** Listed Model Names */
+            listed_model_names?: string[] | null;
         };
         /**
          * ActiveUsersAnalyticsResponse
@@ -34245,6 +34272,35 @@ export interface components {
             total_spend: number | null;
             /** User Email */
             user_email?: string | null;
+            /** User Id */
+            user_id: string;
+        };
+        /** TeamMemberResetSpendRequest */
+        TeamMemberResetSpendRequest: {
+            /**
+             * Reset To
+             * @default 0
+             */
+            reset_to: number;
+            /** Team Id */
+            team_id: string;
+            /** User Email */
+            user_email?: string | null;
+            /** User Id */
+            user_id?: string | null;
+        };
+        /** TeamMemberResetSpendResponse */
+        TeamMemberResetSpendResponse: {
+            /** Budget Reset At */
+            budget_reset_at?: string | null;
+            /** Max Budget */
+            max_budget?: number | null;
+            /** Previous Spend */
+            previous_spend: number;
+            /** Spend */
+            spend: number;
+            /** Team Id */
+            team_id: string;
             /** User Id */
             user_id: string;
         };
@@ -54497,6 +54553,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    team_member_reset_spend_team_member_reset_spend_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamMemberResetSpendRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamMemberResetSpendResponse"];
                 };
             };
             /** @description Validation Error */

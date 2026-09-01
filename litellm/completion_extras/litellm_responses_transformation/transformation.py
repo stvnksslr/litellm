@@ -31,6 +31,7 @@ from litellm.responses.sse_output_recovery import (
     record_output_text_chunk,
 )
 from litellm.responses.utils import normalize_responses_api_stream_options
+from litellm.types.llms.anthropic import is_anthropic_hosted_tool_type
 from litellm.types.llms.openai import (
     ChatCompletionAnnotation,
     ChatCompletionReasoningItem,
@@ -445,6 +446,16 @@ class LiteLLMResponsesTransformationHandler(CompletionTransformationBridge):
                 responses_api_request["reasoning"] = self._map_reasoning_effort(value)
             elif key == "web_search_options":
                 self._add_web_search_tool(responses_api_request, value)
+
+        # ``_convert_tools_to_responses_format`` drops Anthropic hosted tools, which
+        # can empty the list entirely. A tool_choice naming one of them then dangles
+        # and the backend rejects the request. Scoped to requests that actually sent
+        # tools, so a tool_choice resolved against server-side state (e.g. via
+        # previous_response_id) is left alone.
+        if optional_params.get("tools") and not responses_api_request.get("tools"):
+            responses_api_request.pop("tools", None)
+            responses_api_request.pop("tool_choice", None)
+            responses_api_request.pop("parallel_tool_calls", None)
 
     def _build_sanitized_litellm_params(self, litellm_params: dict) -> dict[str, object]:
         """Build sanitized litellm_params with merged metadata."""
@@ -1017,6 +1028,13 @@ class LiteLLMResponsesTransformationHandler(CompletionTransformationBridge):
         """Convert chat completion tools to responses API tools format"""
         responses_tools: Final[list[ALL_RESPONSES_API_TOOL_PARAMS]] = []
         for tool in tools:
+            if is_anthropic_hosted_tool_type(tool.get("type")):
+                verbose_logger.debug(
+                    "Dropping Anthropic hosted tool %s: no /v1/responses equivalent",
+                    tool.get("type"),
+                )
+                continue
+
             # convert function tool from chat completion to responses API format
             if tool.get("type") == "function":
                 function_tool = cast(ChatCompletionToolParamFunctionChunk, tool.get("function"))

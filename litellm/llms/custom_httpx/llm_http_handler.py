@@ -2911,6 +2911,9 @@ class BaseLLMHTTPHandler:
                 responses_api_provider_config=responses_api_provider_config,
                 logging_obj=logging_obj,
                 custom_llm_provider=custom_llm_provider,
+                litellm_metadata=litellm_metadata,
+                request_data=request_context,
+                call_type=CallTypes.responses.value,
             )
         return result
 
@@ -5425,6 +5428,9 @@ class BaseLLMHTTPHandler:
         responses_api_provider_config: BaseResponsesAPIConfig,
         logging_obj: "LiteLLMLoggingObj",
         custom_llm_provider: str,
+        litellm_metadata: dict[str, object] | None = None,
+        request_data: dict[str, Any] | None = None,
+        call_type: str | None = None,
     ) -> MockResponsesAPIStreamingIterator:
         """
         Wrap a completed responses result as a synthetic stream.
@@ -5446,6 +5452,9 @@ class BaseLLMHTTPHandler:
             responses_api_provider_config=responses_api_provider_config,
             logging_obj=logging_obj,
             custom_llm_provider=custom_llm_provider,
+            litellm_metadata=litellm_metadata,
+            request_data=request_data,
+            call_type=call_type,
         )
 
     async def _execute_chat_completion_agentic_plan(

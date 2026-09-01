@@ -10,7 +10,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from itertools import groupby
 from os import PathLike
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Final, Literal, TypeAlias, TypeVar, cast
 
 from openai.types.chat.chat_completion_custom_tool_param import (
     CustomFormatGrammar,
@@ -1491,6 +1491,42 @@ def add_system_prompt_to_messages(
 
     system_message: Final[AllMessageValues] = {"role": "system", "content": system_prompt}
     return [system_message, *messages]
+
+
+_SystemContent: TypeAlias = "str | list[Mapping[str, object]] | None"
+
+
+def _system_message_texts(message: AllMessageValues) -> tuple[str, ...]:
+    content: Final = cast(_SystemContent, message.get("content"))  # cast-ok: content blocks are declared untyped
+    if isinstance(content, str):
+        return (content,) if content else ()
+    if content is None:
+        return ()
+    return tuple(text for block in content if isinstance(text := block.get("text"), str) and text)
+
+
+def merge_system_messages_to_front(
+    messages: list[AllMessageValues],
+) -> list[AllMessageValues]:
+    """
+    Collapse every system message into a single system message at index 0.
+
+    Vertex AI's MaaS gateway (and other strict OpenAI-compatible servers) reject a request that
+    carries more than one system message, or one that is not first: "System message must be at
+    the beginning." Clients legitimately produce mid-turn system entries, so fold them together
+    instead of failing the call.
+    """
+    non_system: Final[list[AllMessageValues]] = [message for message in messages if message["role"] != "system"]
+    system_count: Final = len(messages) - len(non_system)
+    if system_count == 0 or (system_count == 1 and messages[0]["role"] == "system"):
+        return list(messages)
+    system_texts: Final = tuple(
+        text for message in messages if message["role"] == "system" for text in _system_message_texts(message)
+    )
+    if not system_texts:
+        return non_system
+    merged: Final[AllMessageValues] = {"role": "system", "content": "\n\n".join(system_texts)}
+    return [merged, *non_system]
 
 
 def convert_prefix_message_to_non_prefix_messages(

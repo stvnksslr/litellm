@@ -1,8 +1,8 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from enum import Enum
 from typing import Any, Final, Literal, TypeAlias
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import NotRequired, ReadOnly, Required, TypedDict
 
 from .openai import (
@@ -606,6 +606,36 @@ class AnthropicResponseContentBlockToolUse(BaseModel):
     model_config = ConfigDict(extra="allow")  # Allow provider_specific_fields
 
 
+class AnthropicResponseContentBlockServerToolUse(BaseModel):
+    """A server-side tool invocation the provider ran, e.g. hosted web search."""
+
+    type: Literal["server_tool_use"] = "server_tool_use"
+    id: str
+    name: str
+    input: dict[str, Any] = Field(default_factory=dict)
+
+
+class AnthropicWebSearchResultBlock(BaseModel):
+    type: Literal["web_search_result"] = "web_search_result"
+    url: str
+    title: str
+    page_age: str | None = None
+    # Anthropic returns an opaque blob here for replay; nothing we synthesize
+    # can produce one, and clients treat the empty string as "not replayable".
+    encrypted_content: str = ""
+    # Additive to the spec: page text has nowhere to live once encrypted_content
+    # is empty, and dropping it leaves the client with no evidence to answer from.
+    snippet: str = ""
+
+
+class AnthropicResponseContentBlockWebSearchToolResult(BaseModel):
+    """Paired with the ``server_tool_use`` block sharing its ``tool_use_id``."""
+
+    type: Literal["web_search_tool_result"] = "web_search_tool_result"
+    tool_use_id: str
+    content: list[AnthropicWebSearchResultBlock]
+
+
 class AnthropicResponseContentBlockThinking(BaseModel):
     type: Literal["thinking"]
     thinking: str
@@ -695,6 +725,31 @@ class ANTHROPIC_HOSTED_TOOLS(str, Enum):
     WEB_FETCH = "web_fetch"
     MEMORY = "memory"
     TOOL_SEARCH_TOOL = "tool_search_tool"
+
+
+def is_anthropic_hosted_tool_type(tool_type: str | None) -> bool:
+    """Return True when ``tool_type`` names an Anthropic server-side tool.
+
+    Hosted tool types carry a date suffix (e.g. ``web_search_20250305``,
+    ``tool_search_tool_regex_20251119``), so match on the family prefix.
+    """
+    if not tool_type:
+        return False
+    return any(tool_type.startswith(hosted.value) for hosted in ANTHROPIC_HOSTED_TOOLS)
+
+
+def is_anthropic_web_search_tool(tool: Mapping[str, object]) -> bool:
+    """Return True when ``tool`` is Anthropic's server-side web search tool.
+
+    Matches the dated hosted type (``web_search_20250305`` and successors) or
+    the bare hosted name Claude Code sends. A caller-defined function tool that
+    happens to be named ``web_search`` carries an ``input_schema`` and is a
+    client tool, so it is deliberately excluded.
+    """
+    tool_type = tool.get("type")
+    if isinstance(tool_type, str) and tool_type.startswith(ANTHROPIC_HOSTED_TOOLS.WEB_SEARCH.value):
+        return True
+    return tool.get("name") == ANTHROPIC_HOSTED_TOOLS.WEB_SEARCH.value and "input_schema" not in tool
 
 
 class ANTHROPIC_BETA_HEADER_VALUES(str, Enum):

@@ -438,6 +438,19 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
             </MountedFormField>
 
             <MountedFormField
+              name="skip_budget_checks"
+              label={labelWithHint(
+                "Skip budget checks",
+                "Admit requests to this model even when the caller is over budget. Spend is still tracked; only the pre-call budget limit is bypassed for this model.",
+              )}
+              className="mb-4 mt-4"
+            >
+              {(control) => (
+                <Switch id={control.id} checked={control.value === true} onCheckedChange={control.onChange} />
+              )}
+            </MountedFormField>
+
+            <MountedFormField
               name="cache_control"
               label={labelWithHint(CACHE_CONTROL_LABEL, CACHE_CONTROL_TOOLTIP)}
               className="mb-4"

@@ -1453,6 +1453,7 @@ describe("ModelInfoView", () => {
           input_cost_per_token: 0.00003,
           output_cost_per_token: 0.00006,
           access_groups: [],
+          skip_budget_checks: false,
         },
       });
     });
@@ -1682,7 +1683,7 @@ describe("ModelInfoView", () => {
 
         expect(screen.queryByRole("button", { name: /add injection point/i })).not.toBeInTheDocument();
 
-        await user.click(screen.getByRole("switch"));
+        await user.click(screen.getByRole("switch", { name: /cache control injection points/i }));
 
         expect(await screen.findByRole("button", { name: /add injection point/i })).toBeInTheDocument();
       });
@@ -1701,7 +1702,7 @@ describe("ModelInfoView", () => {
         const user = userEvent.setup();
         await enterEditMode(user);
 
-        await user.click(screen.getByRole("switch"));
+        await user.click(screen.getByRole("switch", { name: /cache control injection points/i }));
         const payload = await save(user);
 
         expect(payload.litellm_params).not.toHaveProperty("cache_control_injection_points");

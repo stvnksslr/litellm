@@ -949,8 +949,10 @@ class Router:
         # zero-cost?" check. Lives on the router so it is invalidated alongside
         # ``_cached_get_model_group_info`` and dies with the router (no
         # ``id()``-reuse risk after GC). See
-        # ``litellm.proxy.auth.auth_checks._is_model_cost_zero``.
-        self._zero_cost_cache: dict[str, bool] = {}
+# ``litellm.proxy.auth.auth_checks._is_model_cost_zero``. Keyed by
+        # ``(team_id, model_name)`` — the same public model name resolves
+        # differently per team.
+        self._zero_cost_cache: dict[tuple[str | None, str], bool] = {}
         self.cached_deployment_model_info = lru_cache(maxsize=DEFAULT_MAX_LRU_CACHE_SIZE)(
             self.get_deployment_model_info
         )

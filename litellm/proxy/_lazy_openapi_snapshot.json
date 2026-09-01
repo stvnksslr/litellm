@@ -686,6 +686,20 @@
                 }
               ],
               "title": "Description"
+            },
+            "listed_model_names": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Listed Model Names"
             }
           },
           "required": [
@@ -867,6 +881,13 @@
               ],
               "title": "Description"
             },
+            "listed_model_names": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Listed Model Names",
+              "type": "array"
+            },
             "updated_at": {
               "format": "date-time",
               "title": "Updated At",
@@ -888,6 +909,7 @@
             "access_group_id",
             "access_group_name",
             "access_model_names",
+            "listed_model_names",
             "access_mcp_server_ids",
             "access_agent_ids",
             "assigned_team_ids",
@@ -995,6 +1017,20 @@
                 }
               ],
               "title": "Description"
+            },
+            "listed_model_names": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Listed Model Names"
             }
           },
           "title": "AccessGroupUpdateRequest",

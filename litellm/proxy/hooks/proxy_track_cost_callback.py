@@ -21,6 +21,7 @@ from litellm.proxy.auth.auth_checks import (
     get_team_object,
     log_db_metrics,
 )
+from litellm.proxy.auth.auth_utils import get_model_from_request
 from litellm.proxy.auth.route_checks import RouteChecks
 from litellm.proxy.db.db_spend_update_writer import (
     DBSpendUpdateWriter,
@@ -129,6 +130,21 @@ class _ProxyDBLogger(CustomLogger):
         args: Final = spend_event_callback_args(event)
         await self._PROXY_track_cost_callback(args.kwargs, args.response_obj, args.start_time, args.end_time)
 
+    @staticmethod
+    def _resolve_failure_log_model(request_data: dict, existing_litellm_params: dict, route: str | None) -> str:
+        """
+        Resolve the model for a failed request's spend log. The body carries no
+        model when the model lives in the route path (Azure deployment-style
+        routes) or when an auth failure rejected the request before routing, so
+        fall back to the route resolver to keep the Logs UI model column filled.
+        """
+        resolved = existing_litellm_params.get("model") or get_model_from_request(
+            request_data=request_data, route=route or ""
+        )
+        if isinstance(resolved, list):
+            resolved = resolved[0] if resolved else None
+        return resolved or ""
+
     async def async_post_call_failure_hook(
         self,
         request_data: dict,
@@ -216,8 +232,12 @@ class _ProxyDBLogger(CustomLogger):
         request_data["litellm_params"]["metadata"] = existing_metadata
 
         # Preserve model name and custom_llm_provider
-        if "model" not in request_data:
-            request_data["model"] = existing_litellm_params.get("model") or request_data.get("model", "")
+        if not request_data.get("model"):
+            request_data["model"] = self._resolve_failure_log_model(
+                request_data=request_data,
+                existing_litellm_params=existing_litellm_params,
+                route=request_route,
+            )
         if "custom_llm_provider" not in request_data:
             request_data["custom_llm_provider"] = existing_litellm_params.get(
                 "custom_llm_provider"

@@ -1695,6 +1695,7 @@ class TestAnthropicThinkingSignatureSelfHeal:
                                 "title": "Releases",
                                 "page_age": None,
                                 "encrypted_content": "",
+                                "snippet": "",
                                 "snippet": "Latest release v1.95.0",
                             }
                         ],

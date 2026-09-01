@@ -3082,7 +3082,7 @@ def _get_builtin_model_info_for_registration(model: str) -> ModelInfo | None:
     """
     try:
         info: Final = get_model_info(model=model)
-    except Exception:
+    except Exception:  # noqa: BLE001 - model lookup is best-effort, None on any failure
         return None
     return None if is_generalized_model_info(info) else info
 

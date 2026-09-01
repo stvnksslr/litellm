@@ -20,6 +20,7 @@ from litellm.litellm_core_utils.prompt_templates.common_utils import (
     handle_any_messages_to_chat_completion_str_messages_conversion,
     hoist_images_from_tool_messages,
     is_encrypted_reasoning_block,
+    merge_system_messages_to_front,
     responses_reasoning_items_from_thinking_blocks,
     split_concatenated_json_objects,
     strip_encrypted_reasoning_from_messages,
@@ -1813,3 +1814,34 @@ class TestEncryptedReasoningReplay:
         strip_encrypted_reasoning_from_messages(messages)
 
         assert messages == before
+
+
+def test_merge_system_messages_to_front_folds_every_system_message_in_order():
+    """Vertex AI MaaS rejects a request unless a single system message comes first."""
+    merged = merge_system_messages_to_front(
+        [
+            {"role": "user", "content": "hi"},
+            {
+                "role": "system",
+                "content": [
+                    {"type": "text", "text": "be terse"},
+                    {"type": "image_url", "image_url": {"url": "https://example.com/a.png"}},
+                ],
+            },
+            {"role": "assistant", "content": "ok"},
+            {"role": "system", "content": ""},
+            {"role": "system", "content": "answer in french"},
+        ]
+    )
+
+    assert merged == [
+        {"role": "system", "content": "be terse\n\nanswer in french"},
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "ok"},
+    ]
+
+
+def test_merge_system_messages_to_front_without_system_messages_is_a_no_op():
+    messages = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hey"}]
+
+    assert merge_system_messages_to_front(messages) == messages

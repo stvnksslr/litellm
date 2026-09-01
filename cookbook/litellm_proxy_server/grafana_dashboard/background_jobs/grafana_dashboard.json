@@ -1,0 +1,429 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Health of LiteLLM scheduled background jobs (budget reset, spend flush, daily spend aggregation, Redis/Postgres, pod lock). Sourced from the Prometheus services logger; requires litellm_settings.service_callback to include \"prometheus_system\".",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "panels": [],
+      "title": "LiteLLM Background Jobs",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Number of budget-reset job runs in the last 30 minutes. The job runs about every 10 minutes, so 0 here means the scheduler has stopped running it (stale / stuck) - this is what was missed on 2026-06-15.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+      "id": 2,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(increase(litellm_reset_budget_job_total_requests_total[30m]))",
+          "legendFormat": "runs (30m)",
+          "refId": "A"
+        }
+      ],
+      "title": "Budget reset runs (last 30m)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Budget-reset job failures in the last hour. Any value > 0 means a scheduled reset errored (e.g. the DB read-timeout on 2026-06-15).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+      "id": 3,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(increase(litellm_reset_budget_job_failed_requests_total[1h]))",
+          "legendFormat": "failures (1h)",
+          "refId": "A"
+        }
+      ],
+      "title": "Budget reset failures (last 1h)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Failures across all in-scope background jobs in the last hour.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "id": 4,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(increase({__name__=~\"litellm_(reset_budget_job|batch_write_to_db|postgres|redis|in_memory_spend_update_queue|redis_spend_update_queue|in_memory_daily_spend_update_queue|redis_daily_spend_update_queue|redis_daily_team_spend_update_queue|redis_daily_tag_spend_update_queue|redis_daily_end_user_spend_update_queue|redis_daily_org_spend_update_queue|pod_lock_manager)_failed_requests_total\"}[1h]))",
+          "legendFormat": "failures (1h)",
+          "refId": "A"
+        }
+      ],
+      "title": "All job failures (last 1h)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Worst p95 run latency across in-scope jobs over the last 30 minutes. The DB statement_timeout is 30s, so latency creeping toward it is an early warning of the lock contention that caused the 2026-06-15 timeout.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "red", "value": 10 }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "id": 5,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "max(histogram_quantile(0.95, sum by (le, __name__) (rate({__name__=~\"litellm_(reset_budget_job|batch_write_to_db|postgres|redis|in_memory_spend_update_queue|redis_spend_update_queue|in_memory_daily_spend_update_queue|redis_daily_spend_update_queue|redis_daily_team_spend_update_queue|redis_daily_tag_spend_update_queue|redis_daily_end_user_spend_update_queue|redis_daily_org_spend_update_queue|pod_lock_manager)_latency_bucket\"}[30m]))))",
+          "legendFormat": "max p95",
+          "refId": "A"
+        }
+      ],
+      "title": "Max job p95 latency",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Per-job run count (15m increase). A line flatlining at zero means that job stopped running.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "id": 6,
+      "options": {
+        "legend": { "calcs": [], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum by (__name__) (increase({__name__=~\"litellm_(reset_budget_job|batch_write_to_db|postgres|redis|in_memory_spend_update_queue|redis_spend_update_queue|in_memory_daily_spend_update_queue|redis_daily_spend_update_queue|redis_daily_team_spend_update_queue|redis_daily_tag_spend_update_queue|redis_daily_end_user_spend_update_queue|redis_daily_org_spend_update_queue|pod_lock_manager)_total_requests_total\"}[15m]))",
+          "legendFormat": "{{__name__}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Job runs (15m increase)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Per-job failures (1h increase). Any non-zero line is a failing job.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+      "id": 7,
+      "options": {
+        "legend": { "calcs": [], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum by (__name__) (increase({__name__=~\"litellm_(reset_budget_job|batch_write_to_db|postgres|redis|in_memory_spend_update_queue|redis_spend_update_queue|in_memory_daily_spend_update_queue|redis_daily_spend_update_queue|redis_daily_team_spend_update_queue|redis_daily_tag_spend_update_queue|redis_daily_end_user_spend_update_queue|redis_daily_org_spend_update_queue|pod_lock_manager)_failed_requests_total\"}[1h]))",
+          "legendFormat": "{{__name__}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Job failures (1h increase)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Budget-reset failures broken down by error class and function, from the failed_requests counter labels.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+      "id": 8,
+      "options": {
+        "legend": { "calcs": [], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum by (error_class, function_name) (increase(litellm_reset_budget_job_failed_requests_total[6h]))",
+          "legendFormat": "{{error_class}} / {{function_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Budget reset failures by cause (6h)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Per-job p95 run latency (s).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+      "id": 9,
+      "options": {
+        "legend": { "calcs": [], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "histogram_quantile(0.95, sum by (le, __name__) (rate({__name__=~\"litellm_(reset_budget_job|batch_write_to_db|postgres|redis|in_memory_spend_update_queue|redis_spend_update_queue|in_memory_daily_spend_update_queue|redis_daily_spend_update_queue|redis_daily_team_spend_update_queue|redis_daily_tag_spend_update_queue|redis_daily_end_user_spend_update_queue|redis_daily_org_spend_update_queue|pod_lock_manager)_latency_bucket\"}[30m])))",
+          "legendFormat": "{{__name__}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Job p95 latency (s)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 21 },
+      "id": 10,
+      "options": {
+        "code": { "language": "plaintext", "showLineNumbers": false, "showMiniMap": false },
+        "content": "## Setup\n\nThese panels need the Prometheus **services** logger. Enable it in the proxy config and reload:\n\n```yaml\nlitellm_settings:\n  service_callback: [\"prometheus_system\"]\n```\n\nVerify the series exist: `curl -s $PROXY/metrics -H \"Authorization: Bearer $KEY\" | grep reset_budget_job`\n\nLabel quirk: each service has its own metric family and a self-named label (e.g. `litellm_reset_budget_job_total_requests_total{reset_budget_job=\"reset_budget_job\"}`); counters carry the `_total` suffix added by the Prometheus client.\n\n## Alert rules (create in Grafana Alerting; budget_reset is the priority)\n\n**Job failed** (fires on any failure in the last hour):\n```\nincrease(litellm_reset_budget_job_failed_requests_total[1h]) > 0\n```\n\n**Job stale / stopped** (the 2026-06-15 case; budget reset runs ~every 10m, alert if no run in 30m):\n```\nsum(increase(litellm_reset_budget_job_total_requests_total[30m])) == 0\n```\nplus a companion to catch the series vanishing entirely (logger off / never ran):\n```\nabsent_over_time(litellm_reset_budget_job_total_requests_total[1h])\n```\n\n**Latency spike** (early warning of DB lock contention; DB statement_timeout is 30s):\n```\nhistogram_quantile(0.95, sum by (le) (rate(litellm_reset_budget_job_latency_bucket[30m]))) > 10\n```\n\nFor other in-scope jobs, swap `reset_budget_job` for the service name and set the stale window to ~3x that job's interval.\n\n## Coverage\n\nIn scope (emit service hooks): `reset_budget_job`, `batch_write_to_db`, `postgres`, `redis`, the `*_spend_update_queue` / `*_daily_spend_update_queue` families, `pod_lock_manager`. Out of scope (no service hooks today): key rotation, spend-log cleanup, deployment/credential refresh, expired-session cleanup, weekly/monthly reports.",
+        "mode": "markdown"
+      },
+      "pluginVersion": "10.4.0",
+      "title": "Setup & alert rules",
+      "type": "text"
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": ["litellm", "background-jobs", "observability"],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "datasource",
+        "multi": false,
+        "name": "DS_PROMETHEUS",
+        "options": [],
+        "query": "prometheus",
+        "queryValue": "",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      }
+    ]
+  },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "LiteLLM Background Jobs",
+  "uid": "litellm-background-jobs",
+  "version": 1,
+  "weekStart": ""
+}

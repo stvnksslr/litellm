@@ -812,16 +812,33 @@ class TestTranslateToolsToResponsesAPI:
         assert "parameters" not in result[0]
 
     def test_web_search_tool_by_name(self):
-        """Tool named 'web_search' maps to web_search_preview."""
+        """Tool named 'web_search' maps to the hosted web_search tool."""
         tools = [{"name": "web_search", "type": "custom"}]
         result = _ADAPTER.translate_tools_to_responses_api(tools)  # type: ignore[arg-type]
-        assert result == [{"type": "web_search_preview"}]
+        assert result == [{"type": "web_search"}]
 
     def test_web_search_tool_by_type_prefix(self):
-        """Tool with type starting with 'web_search' maps to web_search_preview."""
+        """Tool with type starting with 'web_search' maps to the hosted web_search tool."""
         tools = [{"name": "search", "type": "web_search_20250305"}]
         result = _ADAPTER.translate_tools_to_responses_api(tools)  # type: ignore[arg-type]
-        assert result == [{"type": "web_search_preview"}]
+        assert result == [{"type": "web_search"}]
+
+    def test_caller_function_tool_named_web_search_stays_a_function(self):
+        """A client tool that happens to be named web_search carries an input_schema.
+
+        Reducing it to the hosted tool would silently delete the caller's tool.
+        """
+        tools = [{"name": "web_search", "description": "my own", "input_schema": {"type": "object"}}]
+        result = _ADAPTER.translate_tools_to_responses_api(tools)  # type: ignore[arg-type]
+        assert result == [
+            {
+                "type": "function",
+                "name": "web_search",
+                "description": "my own",
+                "parameters": {"type": "object"},
+                "strict": False,
+            }
+        ]
 
     def test_multiple_tools_order_preserved(self):
         """Multiple tools are converted in order."""
@@ -833,7 +850,7 @@ class TestTranslateToolsToResponsesAPI:
         result = _ADAPTER.translate_tools_to_responses_api(tools)  # type: ignore[arg-type]
         assert len(result) == 3
         assert result[0]["name"] == "tool_a"
-        assert result[1] == {"type": "web_search_preview"}
+        assert result[1] == {"type": "web_search"}
         assert result[2]["name"] == "tool_b"
 
     def test_empty_tools_list(self):
@@ -1971,3 +1988,170 @@ class TestPromptCacheBreakpointToResponses:
             extra_kwargs={"prompt_cache_options": {"mode": "explicit"}},
         )
         assert kwargs["prompt_cache_options"] == {"mode": "explicit"}
+
+
+# ---------------------------------------------------------------------------
+# translate_response - provider-run web search
+# ---------------------------------------------------------------------------
+
+
+def _web_search_output(query: str = "latest litellm release", call_id: str = "ws_1") -> dict:
+    return {
+        "id": call_id,
+        "type": "web_search_call",
+        "status": "completed",
+        "action": {"type": "search", "query": query},
+    }
+
+
+def _message_output(text: str, annotations: list | None = None, item_id: str = "msg_1") -> dict:
+    return {
+        "id": item_id,
+        "type": "message",
+        "role": "assistant",
+        "status": "completed",
+        "content": [{"type": "output_text", "text": text, "annotations": annotations or []}],
+    }
+
+
+class TestTranslateResponseWebSearch:
+    """A hosted web search run by the provider must come back as Anthropic-native blocks.
+
+    ``web_search_call`` items previously matched no branch and were dropped
+    silently, and only ``part.text`` was read, so the ``url_citation``
+    annotations carrying the sources never reached the client. Claude Code then
+    renders an answer with no sources at all.
+    """
+
+    def test_web_search_call_and_citations_become_paired_blocks(self):
+        response = _make_mock_response(
+            output=[
+                _web_search_output(),
+                _message_output(
+                    "The latest release is v1.96.0.",
+                    annotations=[
+                        {
+                            "type": "url_citation",
+                            "url": "https://github.com/BerriAI/litellm/releases",
+                            "title": "Releases",
+                        }
+                    ],
+                ),
+            ]
+        )
+        result: Any = _ADAPTER.translate_response(response)
+        assert result["content"] == [
+            {
+                "type": "server_tool_use",
+                "id": "ws_1",
+                "name": "web_search",
+                "input": {"query": "latest litellm release"},
+            },
+            {
+                "type": "web_search_tool_result",
+                "tool_use_id": "ws_1",
+                "content": [
+                    {
+                        "type": "web_search_result",
+                        "url": "https://github.com/BerriAI/litellm/releases",
+                        "title": "Releases",
+                        "page_age": None,
+                        "encrypted_content": "",
+                        "snippet": "",
+                    }
+                ],
+            },
+            {"type": "text", "text": "The latest release is v1.96.0."},
+        ]
+
+    def test_search_only_turn_keeps_end_turn_stop_reason(self):
+        """A server-side search is not a client tool call - the turn is complete."""
+        response = _make_mock_response(output=[_web_search_output(), _message_output("Answer.")])
+        result: Any = _ADAPTER.translate_response(response)
+        assert result["stop_reason"] == "end_turn"
+
+    def test_search_without_citations_still_emits_a_result_block(self):
+        """An empty result list means 'search ran, found nothing', not 'no search'."""
+        response = _make_mock_response(output=[_web_search_output(), _message_output("Nothing found.")])
+        result: Any = _ADAPTER.translate_response(response)
+        result_blocks = [b for b in result["content"] if b["type"] == "web_search_tool_result"]
+        assert result_blocks == [{"type": "web_search_tool_result", "tool_use_id": "ws_1", "content": []}]
+
+    def test_non_web_annotations_are_not_reported_as_sources(self):
+        response = _make_mock_response(
+            output=[
+                _web_search_output(),
+                _message_output(
+                    "Answer.",
+                    annotations=[{"type": "file_citation", "file_id": "f_1", "filename": "notes.md"}],
+                ),
+            ]
+        )
+        result: Any = _ADAPTER.translate_response(response)
+        result_block = next(b for b in result["content"] if b["type"] == "web_search_tool_result")
+        assert result_block["content"] == []
+
+    def test_multiple_searches_each_pair_and_sources_land_on_the_last(self):
+        """The Responses API aggregates citations on the final message rather than
+        per search, so attributing them to a specific earlier search would be a guess."""
+        response = _make_mock_response(
+            output=[
+                _web_search_output(query="first", call_id="ws_1"),
+                _web_search_output(query="second", call_id="ws_2"),
+                _message_output(
+                    "Answer.",
+                    annotations=[{"type": "url_citation", "url": "https://example.com", "title": "Example"}],
+                ),
+            ]
+        )
+        result: Any = _ADAPTER.translate_response(response)
+        assert [b["type"] for b in result["content"]] == [
+            "server_tool_use",
+            "web_search_tool_result",
+            "server_tool_use",
+            "web_search_tool_result",
+            "text",
+        ]
+        by_id = {b["tool_use_id"]: b["content"] for b in result["content"] if b["type"] == "web_search_tool_result"}
+        assert by_id["ws_1"] == []
+        assert len(by_id["ws_2"]) == 1
+
+    def test_page_fetches_are_not_reported_as_searches(self):
+        """Azure reports pages the model opened while searching as web_search_call
+        items too, with ``action.type == "open_page"`` and no query. Anthropic only
+        models the search itself, so a fetch must not surface as a search whose
+        query is the empty string."""
+        response = _make_mock_response(
+            output=[
+                _web_search_output(query="litellm latest release", call_id="ws_1"),
+                {
+                    "id": "ws_2",
+                    "type": "web_search_call",
+                    "status": "completed",
+                    "action": {"type": "open_page", "url": "https://github.com/BerriAI/litellm/releases/latest"},
+                },
+                _message_output("v1.96.0."),
+            ]
+        )
+        result: Any = _ADAPTER.translate_response(response)
+        assert [b["type"] for b in result["content"]] == [
+            "server_tool_use",
+            "web_search_tool_result",
+            "text",
+        ]
+        assert result["content"][0]["input"] == {"query": "litellm latest release"}
+
+    def test_web_search_alongside_a_client_tool_call(self):
+        response = _make_mock_response(
+            output=[
+                _web_search_output(),
+                {"type": "function_call", "call_id": "call_1", "name": "lookup", "arguments": '{"id": 1}'},
+            ]
+        )
+        result: Any = _ADAPTER.translate_response(response)
+        assert [b["type"] for b in result["content"]] == [
+            "server_tool_use",
+            "web_search_tool_result",
+            "tool_use",
+        ]
+        assert result["stop_reason"] == "tool_use"

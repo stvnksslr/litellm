@@ -49,6 +49,83 @@ def test_azure_gpt5_maps_max_tokens(config: AzureOpenAIGPT5Config):
     assert "max_tokens" not in params
 
 
+class TestAzureGpt5MinimumCompletionTokens:
+    """Azure 400s a gpt-5 request whose budget is below 3.
+
+    Verified against a live azure/gpt-5.6 deployment: 1 and 2 return HTTP 400
+    "Could not finish the message because max_tokens or model output limit was
+    reached", while 3 returns finish_reason "length" with empty content - what
+    OpenAI and Anthropic give for a 1-token budget. Clients probe deployment
+    availability with a 1-token request (Claude Code does so for /model,
+    verify_api_key and quota_check), so without the floor every Azure gpt-5
+    deployment reads as unreachable.
+    """
+
+    @pytest.mark.parametrize("requested", [1, 2])
+    def test_max_tokens_below_the_floor_is_raised(self, config: AzureOpenAIGPT5Config, requested: int):
+        params = config.map_openai_params(
+            non_default_params={"max_tokens": requested},
+            optional_params={},
+            model="gpt5_series/gpt-5.6-luna",
+            drop_params=False,
+            api_version="preview",
+        )
+        assert params["max_completion_tokens"] == 3
+
+    def test_caller_supplied_max_completion_tokens_is_also_raised(self, config: AzureOpenAIGPT5Config):
+        """The floor sits after the mapping, so both spellings are covered."""
+        params = config.map_openai_params(
+            non_default_params={"max_completion_tokens": 1},
+            optional_params={},
+            model="gpt5_series/gpt-5.6-luna",
+            drop_params=False,
+            api_version="preview",
+        )
+        assert params["max_completion_tokens"] == 3
+
+    @pytest.mark.parametrize("requested", [3, 4, 16, 1024])
+    def test_budgets_at_or_above_the_floor_are_untouched(self, config: AzureOpenAIGPT5Config, requested: int):
+        params = config.map_openai_params(
+            non_default_params={"max_tokens": requested},
+            optional_params={},
+            model="gpt5_series/gpt-5.6-luna",
+            drop_params=False,
+            api_version="preview",
+        )
+        assert params["max_completion_tokens"] == requested
+
+    def test_no_budget_stays_absent(self, config: AzureOpenAIGPT5Config):
+        params = config.map_openai_params(
+            non_default_params={"temperature": 1},
+            optional_params={},
+            model="gpt5_series/gpt-5.6-luna",
+            drop_params=False,
+            api_version="preview",
+        )
+        assert "max_completion_tokens" not in params
+
+    def test_floor_reaches_the_wire_through_get_optional_params(self):
+        """End to end through the public mapping the handlers actually call,
+        including a bespoke Azure deployment name that is not in the model map."""
+        params = litellm.utils.get_optional_params(
+            model="pb-ai-enablement-dev-gpt-5.6-luna-2026-07-09",
+            custom_llm_provider="azure",
+            max_tokens=1,
+        )
+        assert params["max_completion_tokens"] == 3
+        assert "max_tokens" not in params
+
+    def test_non_gpt5_azure_deployments_are_not_floored(self):
+        """The 400 is specific to the gpt-5 reasoning family; gpt-4o accepts 1."""
+        params = litellm.utils.get_optional_params(
+            model="gpt-4o",
+            custom_llm_provider="azure",
+            max_tokens=1,
+        )
+        assert params.get("max_tokens") == 1
+        assert "max_completion_tokens" not in params
+
+
 def test_azure_gpt5_temperature_error(config: AzureOpenAIGPT5Config):
     with pytest.raises(litellm.utils.UnsupportedParamsError):
         config.map_openai_params(

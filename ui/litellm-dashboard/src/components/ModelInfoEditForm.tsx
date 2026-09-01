@@ -100,6 +100,7 @@ export interface ModelEditFormValues {
   vector_store_ids?: string[];
   tags?: string[];
   health_check_model?: string | null;
+  skip_budget_checks?: boolean;
   litellm_credential_name?: string;
   litellm_extra_params?: string;
   model_info?: string;
@@ -136,6 +137,7 @@ const modelEditShape = {
   vector_store_ids: z.array(z.string()).optional(),
   tags: z.array(z.string()).optional(),
   health_check_model: z.string().nullish(),
+  skip_budget_checks: z.boolean().optional(),
   litellm_credential_name: textish,
   litellm_extra_params: textish,
   model_info: textish,
@@ -250,6 +252,7 @@ export const toModelEditFormValues = (localModelData: any, isWildcardModel: bool
   tags: Array.isArray(localModelData.litellm_params?.tags) ? localModelData.litellm_params.tags : [],
   // antd never mounted this field for a non-wildcard model, so the key must be absent, not null.
   ...(isWildcardModel ? { health_check_model: localModelData.model_info?.health_check_model } : {}),
+  skip_budget_checks: localModelData.model_info?.skip_budget_checks ?? false,
   litellm_credential_name: localModelData.litellm_params?.litellm_credential_name || "",
   litellm_extra_params: JSON.stringify(
     Object.fromEntries(
@@ -686,6 +689,29 @@ const ModelInfoEditForm: React.FC<ModelInfoEditFormProps> = ({
                 ) : (
                   <Display>{localModelData.model_info?.health_check_model || "Not Set"}</Display>
                 )}
+              </div>
+            )}
+
+            {isEditing ? (
+              <FormField
+                control={form.control}
+                name="skip_budget_checks"
+                label={
+                  <>
+                    Skip budget checks
+                    <Hint text="Admit requests to this model even when the caller is over budget. Spend is still tracked; only the pre-call budget limit is bypassed for this model." />
+                  </>
+                }
+                orientation="horizontal"
+              >
+                {({ id, value, onChange, onBlur }) => (
+                  <Switch id={id} onBlur={onBlur} checked={Boolean(value)} onCheckedChange={onChange} />
+                )}
+              </FormField>
+            ) : (
+              <div>
+                <FieldLabel>Skip budget checks</FieldLabel>
+                <Display>{localModelData.model_info?.skip_budget_checks ? "Enabled" : "Disabled"}</Display>
               </div>
             )}
 

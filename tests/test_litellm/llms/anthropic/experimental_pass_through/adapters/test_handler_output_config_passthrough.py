@@ -27,9 +27,6 @@ Tests cover (consolidating PRs #23706 and #22727):
 
 import os
 import sys
-from unittest.mock import MagicMock, patch
-
-import pytest
 
 # Anchor sys.path to this file's location — not the working-directory-relative
 # pattern Greptile flagged on PR #23706. Resolves correctly regardless of
@@ -66,7 +63,7 @@ def _call_prepare(extra_kwargs, model="gpt-4o", output_format=None, **overrides)
         stream=False,
         system=None,
         temperature=None,
-        thinking=None,
+        thinking=overrides.get("thinking"),
         tool_choice=None,
         tools=None,
         top_k=None,
@@ -205,6 +202,84 @@ class TestOutputConfigStrippedFromCompletionKwargs:
         assert "output_config" not in completion_kwargs
         assert completion_kwargs.get("timeout") == 30
         assert completion_kwargs.get("user") == "end-user-123"
+
+
+class TestQwenGlmThinkingDisable:
+    def test_qwen_deployment_disables_native_thinking_and_preserves_extra_body(self):
+        result = _call_prepare(
+            extra_kwargs={
+                "custom_llm_provider": "vertex_ai",
+                "model_info": {"base_model": "vertex_ai/qwen3-6"},
+                "extra_body": {
+                    "chat_template_kwargs": {"some_option": "keep"},
+                    "other_option": "keep",
+                },
+            },
+            model="claude-haiku-unlimited",
+            max_tokens=8,
+        )
+        completion_kwargs = result[0] if isinstance(result, tuple) else result
+
+        assert completion_kwargs["extra_body"] == {
+            "chat_template_kwargs": {"some_option": "keep", "enable_thinking": False},
+            "other_option": "keep",
+            "enable_thinking": False,
+        }
+
+    def test_glm_deployment_disables_native_thinking(self):
+        result = _call_prepare(
+            extra_kwargs={
+                "custom_llm_provider": "hosted_vllm",
+                "model_info": {"base_model": "hosted_vllm/glm-5_2-fp8"},
+            },
+            model="claude-sonnet-unlimited",
+            max_tokens=8,
+        )
+        completion_kwargs = result[0] if isinstance(result, tuple) else result
+
+        assert completion_kwargs["extra_body"]["enable_thinking"] is False
+        assert completion_kwargs["extra_body"]["chat_template_kwargs"]["enable_thinking"] is False
+
+    def test_explicit_disabled_thinking_uses_native_disable_flag(self):
+        result = _call_prepare(
+            extra_kwargs={
+                "custom_llm_provider": "hosted_vllm",
+                "model_info": {"base_model": "hosted_vllm/glm-5_2-fp8"},
+            },
+            model="claude-sonnet-unlimited",
+            thinking={"type": "disabled"},
+            max_tokens=8,
+        )
+        completion_kwargs = result[0] if isinstance(result, tuple) else result
+
+        assert "reasoning_effort" not in completion_kwargs
+        assert completion_kwargs["extra_body"]["enable_thinking"] is False
+
+    def test_enabled_thinking_is_not_disabled(self):
+        result = _call_prepare(
+            extra_kwargs={
+                "custom_llm_provider": "hosted_vllm",
+                "model_info": {"base_model": "hosted_vllm/glm-5_2-fp8"},
+            },
+            model="claude-sonnet-unlimited",
+            thinking={"type": "enabled", "budget_tokens": 1024},
+        )
+        completion_kwargs = result[0] if isinstance(result, tuple) else result
+
+        assert "extra_body" not in completion_kwargs
+
+    def test_azure_deployment_does_not_receive_native_thinking_flag(self):
+        result = _call_prepare(
+            extra_kwargs={
+                "custom_llm_provider": "azure",
+                "model_info": {"base_model": "azure/gpt-5.6-luna"},
+            },
+            model="claude-sonnet-unlimited",
+            max_tokens=8,
+        )
+        completion_kwargs = result[0] if isinstance(result, tuple) else result
+
+        assert "extra_body" not in completion_kwargs
 
 
 class TestEmptyExtraKwargsPath:

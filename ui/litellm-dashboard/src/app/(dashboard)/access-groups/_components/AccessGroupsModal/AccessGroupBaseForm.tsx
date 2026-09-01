@@ -18,6 +18,7 @@ export const accessGroupFormSchema = z.object({
   name: z.string().min(1, "Please enter the access group name"),
   description: z.string(),
   modelIds: z.array(z.string()),
+  listedModelNames: z.array(z.string()),
   mcpServerIds: z.array(z.string()),
   agentIds: z.array(z.string()),
 });
@@ -138,9 +139,19 @@ export function AccessGroupBaseForm({
       </TabsContent>
 
       <TabsContent value={MODELS_TAB} className="pt-4">
-        <FormField control={form.control} name="modelIds" label="Allowed Models">
-          {(field) => <ModelSelect context="global" value={field.value} onChange={field.onChange} />}
-        </FormField>
+        <FieldGroup>
+          <FormField control={form.control} name="modelIds" label="Allowed Models">
+            {(field) => <ModelSelect context="global" value={field.value} onChange={field.onChange} />}
+          </FormField>
+          <FormField
+            control={form.control}
+            name="listedModelNames"
+            label="Models shown in /v1/models"
+            description="Controls which models appear in the /v1/models listing. Leave empty to list all allowed models. This does not change access."
+          >
+            {(field) => <ModelSelect context="global" value={field.value} onChange={field.onChange} />}
+          </FormField>
+        </FieldGroup>
       </TabsContent>
 
       <TabsContent value={MCP_SERVERS_TAB} className="pt-4">

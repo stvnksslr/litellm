@@ -816,6 +816,79 @@ def test_transform_response_prefers_completed_output_from_raw_sse():
     assert result.choices[0].message.content == "Authoritative completed text"
 
 
+def _transform_incomplete_response(reason: str):
+    from openai.types.responses.response import IncompleteDetails
+
+    from litellm.completion_extras.litellm_responses_transformation.transformation import (
+        LiteLLMResponsesTransformationHandler,
+    )
+
+    raw_response = _make_empty_responses_api_response().model_copy(
+        update={
+            "status": "incomplete",
+            "incomplete_details": IncompleteDetails(reason=reason),
+        }
+    )
+    logging_obj = Mock()
+    logging_obj.model_call_details = {}
+
+    return LiteLLMResponsesTransformationHandler().transform_response(
+        model="gpt-5.6-luna",
+        raw_response=raw_response,
+        model_response=_make_empty_model_response(),
+        logging_obj=logging_obj,
+        request_data={"model": "gpt-5.6-luna"},
+        messages=[{"role": "user", "content": "hi"}],
+        optional_params={},
+        litellm_params={},
+        encoding=Mock(),
+    )
+
+
+@pytest.mark.parametrize(
+    "reason, expected_finish_reason",
+    [
+        ("max_output_tokens", "length"),
+        ("content_filter", "content_filter"),
+    ],
+)
+def test_transform_response_incomplete_output_does_not_raise(reason, expected_finish_reason):
+    """A Responses API result with no usable output is a normal terminal state, not an exception.
+
+    Reasoning models routinely spend the whole ``max_output_tokens`` budget before emitting
+    a message. Raising here produced a bare ``ValueError`` with no status code, which the
+    provider exception mappers turned into a 500 ``APIConnectionError``.
+    """
+    result = _transform_incomplete_response(reason)
+
+    assert len(result.choices) == 1
+    assert result.choices[0].finish_reason == expected_finish_reason
+    assert result.choices[0].message.content == ""
+
+
+def test_transform_response_empty_output_without_incomplete_details_still_raises():
+    """Empty output with no reason is still an unexpected state and must stay loud."""
+    from litellm.completion_extras.litellm_responses_transformation.transformation import (
+        LiteLLMResponsesTransformationHandler,
+    )
+
+    logging_obj = Mock()
+    logging_obj.model_call_details = {}
+
+    with pytest.raises(ValueError, match="Unknown items in responses API response"):
+        LiteLLMResponsesTransformationHandler().transform_response(
+            model="gpt-5.6-luna",
+            raw_response=_make_empty_responses_api_response(),
+            model_response=_make_empty_model_response(),
+            logging_obj=logging_obj,
+            request_data={"model": "gpt-5.6-luna"},
+            messages=[{"role": "user", "content": "hi"}],
+            optional_params={},
+            litellm_params={},
+            encoding=Mock(),
+        )
+
+
 def test_convert_tools_to_responses_format():
     from litellm.completion_extras.litellm_responses_transformation.transformation import (
         LiteLLMResponsesTransformationHandler,
@@ -828,6 +901,75 @@ def test_convert_tools_to_responses_format():
     result = handler._convert_tools_to_responses_format(tools)
 
     assert result[0]["name"] == "test"
+
+
+@pytest.mark.parametrize(
+    "hosted_tool",
+    [
+        {"type": "tool_search_tool_regex_20251119", "name": "tool_search"},
+        {"type": "tool_search_tool_bm25_20251119", "name": "tool_search"},
+        {"type": "web_search_20250305", "name": "web_search"},
+        {"type": "bash_20250124", "name": "bash"},
+        {"type": "text_editor_20250124", "name": "str_replace_editor"},
+        {"type": "memory_20250818", "name": "memory"},
+    ],
+)
+def test_convert_tools_to_responses_format_drops_anthropic_hosted_tools(hosted_tool):
+    """Anthropic server-side tools have no /v1/responses equivalent.
+
+    Claude Code sends them on /v1/messages; the Anthropic -> chat completions adapter
+    forwards them verbatim, and forwarding them on to the Responses API returns
+    400 "Invalid value: 'tool_search_tool_regex_20251119' ... param: tools[0].type".
+    """
+    handler = LiteLLMResponsesTransformationHandler()
+
+    function_tool = {
+        "type": "function",
+        "function": {
+            "name": "Bash",
+            "description": "run a command",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    }
+
+    result = handler._convert_tools_to_responses_format([hosted_tool, function_tool])
+
+    assert [tool["type"] for tool in result] == ["function"]
+    assert result[0]["name"] == "Bash"
+
+
+def test_claude_code_tool_search_request_bridges_to_responses_without_hosted_tools():
+    """End-to-end regression: Claude Code + gpt-5.6 must not 400 on tools[0].type."""
+    from litellm.llms.anthropic.experimental_pass_through.adapters.transformation import (
+        LiteLLMAnthropicMessagesAdapter,
+    )
+    from litellm.main import responses_api_bridge_check
+
+    model = "my-org-gpt-5.6-luna-2026-07-09"
+    claude_code_tools = [
+        {"type": "tool_search_tool_regex_20251119", "name": "tool_search"},
+        {
+            "name": "Bash",
+            "description": "run a command",
+            "input_schema": {"type": "object", "properties": {}},
+        },
+    ]
+
+    openai_tools, _ = LiteLLMAnthropicMessagesAdapter().translate_anthropic_tools_to_openai(tools=claude_code_tools)
+
+    model_info, _ = responses_api_bridge_check(
+        model=model,
+        custom_llm_provider="azure",
+        reasoning_effort=None,
+        reasoning_summary=None,
+        tools=openai_tools,
+    )
+    assert model_info.get("mode") == "responses"
+
+    responses_tools = LiteLLMResponsesTransformationHandler()._convert_tools_to_responses_format(openai_tools)
+
+    assert all(tool["type"] == "function" for tool in responses_tools)
+    assert [tool["name"] for tool in responses_tools] == ["Bash"]
 
 
 def test_extract_extra_body_params_reasoning_effort_override():
@@ -2493,6 +2635,52 @@ def test_map_optional_params_tool_choice_chat_nested_to_responses_api():
         "type": "function",
         "name": "Echo",
     }
+
+
+def test_map_optional_params_drops_tool_choice_when_every_tool_was_dropped():
+    """Anthropic hosted tools have no /v1/responses equivalent and are dropped.
+
+    A tool_choice naming one of them then references a tool that is no longer in
+    the request, and the backend rejects it with 'tool_choice is only allowed
+    when tools are specified'.
+    """
+    from litellm.completion_extras.litellm_responses_transformation.transformation import (
+        LiteLLMResponsesTransformationHandler,
+    )
+    from litellm.types.llms.openai import ResponsesAPIOptionalRequestParams
+
+    handler = LiteLLMResponsesTransformationHandler()
+    responses_api_request = ResponsesAPIOptionalRequestParams()
+    handler._map_optional_params_to_responses_api_request(
+        {
+            "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+            "tool_choice": {"type": "function", "function": {"name": "web_search"}},
+            "parallel_tool_calls": True,
+        },
+        responses_api_request,
+    )
+
+    assert "tools" not in responses_api_request
+    assert "tool_choice" not in responses_api_request
+    assert "parallel_tool_calls" not in responses_api_request
+
+
+def test_map_optional_params_keeps_tool_choice_when_no_tools_were_sent():
+    """A request with no tools of its own may still resolve tool_choice against
+    server-side state (previous_response_id), so it must not be stripped."""
+    from litellm.completion_extras.litellm_responses_transformation.transformation import (
+        LiteLLMResponsesTransformationHandler,
+    )
+    from litellm.types.llms.openai import ResponsesAPIOptionalRequestParams
+
+    handler = LiteLLMResponsesTransformationHandler()
+    responses_api_request = ResponsesAPIOptionalRequestParams()
+    handler._map_optional_params_to_responses_api_request(
+        {"tool_choice": {"type": "function", "function": {"name": "Echo"}}},
+        responses_api_request,
+    )
+
+    assert responses_api_request["tool_choice"] == {"type": "function", "name": "Echo"}
 
 
 @pytest.mark.parametrize(

@@ -8,9 +8,41 @@ from typing import Any, Final
 
 from litellm import verbose_logger
 from litellm._uuid import uuid
+from litellm.llms.anthropic.common_utils import (
+    AnthropicWebSearchResult,
+    build_anthropic_web_search_tool_result_block,
+    web_search_result_from_source,
+)
+from litellm.types.llms.anthropic import (
+    ANTHROPIC_HOSTED_TOOLS,
+    AnthropicResponseContentBlockServerToolUse,
+)
 from litellm.types.llms.anthropic_messages.anthropic_response import AnthropicUsage
 
-from .transformation import LiteLLMAnthropicToResponsesAPIAdapter
+from .transformation import (
+    LiteLLMAnthropicToResponsesAPIAdapter,
+    as_responses_item_mapping,
+    web_search_call_query,
+)
+
+
+def _content_block_start(index: int, content_block: Mapping[str, object]) -> Mapping[str, object]:
+    return {"type": "content_block_start", "index": index, "content_block": content_block}
+
+
+def _content_block_stop(index: int) -> Mapping[str, object]:
+    return {"type": "content_block_stop", "index": index}
+
+
+def _content_block_delta(index: int, delta: Mapping[str, object]) -> Mapping[str, object]:
+    return {"type": "content_block_delta", "index": index, "delta": delta}
+
+
+def _field(source: Any, name: str) -> Any:
+    """Read ``name`` off a Responses API event/item that may be typed or a raw dict."""
+    if isinstance(source, dict):
+        return source.get(name)
+    return getattr(source, name, None)
 
 
 class AnthropicResponsesStreamWrapper:
@@ -40,6 +72,12 @@ class AnthropicResponsesStreamWrapper:
         self._item_id_to_block_index: dict[str, int] = {}
         # Track open function_call items by item_id so we can emit tool_use start
         self._pending_tool_ids: dict[str, str] = {}  # item_id -> call_id / name accumulator
+        # Hosted web search: the id of the last server_tool_use block opened, and the
+        # sources seen so far. The Responses API reports sources as annotations on the
+        # text that follows the search, so the paired web_search_tool_result block can
+        # only be emitted once the response completes.
+        self._web_search_block_id: str | None = None
+        self._web_search_results: tuple[AnthropicWebSearchResult, ...] = ()
         self._sent_message_start = False
         self._sent_message_stop = False
         self._chunk_queue: deque = deque()
@@ -72,14 +110,70 @@ class AnthropicResponsesStreamWrapper:
         block_idx = self._next_block_index()
         if item_id:
             self._item_id_to_block_index[item_id] = block_idx
-        self._chunk_queue.append(
-            {
-                "type": "content_block_start",
-                "index": block_idx,
-                "content_block": content_block,
-            }
-        )
+        self._chunk_queue.append(_content_block_start(block_idx, content_block))
         return block_idx
+
+    def _record_web_search_result(self, source: Any) -> None:
+        result = web_search_result_from_source(as_responses_item_mapping(source))
+        if result is not None and all(seen.url != result.url for seen in self._web_search_results):
+            self._web_search_results += (result,)
+
+    def _queue_web_search_call(self, item: Any) -> None:
+        """Emit the whole server_tool_use block once a hosted search completes.
+
+        ``response.output_item.added`` carries only ``{"id", "type", "status"}``
+        for a web_search_call, so the query - and whether this was a search at all
+        rather than a page fetch the model made while searching - is known only on
+        ``done``. Output items never overlap, so emitting the block here preserves
+        the original ordering.
+        """
+        action = _field(item, "action")
+        for source in _field(action, "sources") or ():
+            self._record_web_search_result(source)
+        query = web_search_call_query(as_responses_item_mapping(item))
+        if query is None:
+            return
+        search_id = str(_field(item, "id") or f"srvtoolu_{uuid.uuid4()}")
+        block_idx = self._next_block_index()
+        self._web_search_block_id = search_id
+        # Anthropic opens a server_tool_use block with an empty input and streams
+        # the arguments as input_json_delta; populating both would double-apply
+        # for clients that accumulate deltas onto the opening block.
+        self._chunk_queue.append(
+            _content_block_start(
+                block_idx,
+                AnthropicResponseContentBlockServerToolUse(
+                    id=search_id, name=ANTHROPIC_HOSTED_TOOLS.WEB_SEARCH.value
+                ).model_dump(),
+            )
+        )
+        self._chunk_queue.append(
+            _content_block_delta(block_idx, {"type": "input_json_delta", "partial_json": json.dumps({"query": query})})
+        )
+        self._chunk_queue.append(_content_block_stop(block_idx))
+
+    def _queue_web_search_tool_result_block(self) -> None:
+        """Emit the web_search_tool_result block paired with the search we opened.
+
+        Deferred to the end of the stream because the Responses API reports the
+        sources as annotations on the answer text, i.e. after the search call
+        has already closed. Anthropic clients pair the block to its
+        ``server_tool_use`` by ``tool_use_id``, not by position.
+        """
+        if self._web_search_block_id is None:
+            return
+        block_idx = self._next_block_index()
+        self._chunk_queue.append(
+            _content_block_start(
+                block_idx,
+                build_anthropic_web_search_tool_result_block(
+                    tool_use_id=self._web_search_block_id,
+                    results=self._web_search_results,
+                ),
+            )
+        )
+        self._chunk_queue.append(_content_block_stop(block_idx))
+        self._web_search_block_id = None
 
     def _process_event(self, event: Any) -> None:
         """Convert one Responses API event into zero or more Anthropic chunks queued for emission."""
@@ -123,6 +217,16 @@ class AnthropicResponsesStreamWrapper:
                         "input": {},
                     },
                 )
+            # reasoning items open their thinking block lazily, on the first
+            # non-empty summary delta, so an empty summary emits no block at all.
+            # web_search_call is handled on ``done``: the added event carries only
+            # {"id", "type", "status"}, so neither the query nor whether this is a
+            # search at all is known yet.
+            return
+
+        # ---- hosted web search sources, reported as citations on the text ----
+        if event_type == "response.output_text.annotation.added":
+            self._record_web_search_result(_field(event, "annotation"))
             return
 
         # ---- text delta ----
@@ -135,13 +239,7 @@ class AnthropicResponsesStreamWrapper:
                 # so no text block is open yet; synthesize content_block_start
                 # instead of emitting a delta with index -1
                 block_idx = self._open_block(item_id, {"type": "text", "text": ""})
-            self._chunk_queue.append(
-                {
-                    "type": "content_block_delta",
-                    "index": block_idx,
-                    "delta": {"type": "text_delta", "text": delta},
-                }
-            )
+            self._chunk_queue.append(_content_block_delta(block_idx, {"type": "text_delta", "text": delta}))
             return
 
         # ---- reasoning summary text delta ----
@@ -152,17 +250,8 @@ class AnthropicResponsesStreamWrapper:
             if block_idx < 0:
                 if not delta:
                     return
-                block_idx = self._open_block(
-                    item_id,
-                    {"type": "thinking", "thinking": "", "signature": ""},  # mutable-ok: API message payload
-                )
-            self._chunk_queue.append(
-                {
-                    "type": "content_block_delta",
-                    "index": block_idx,
-                    "delta": {"type": "thinking_delta", "thinking": delta},
-                }
-            )
+                block_idx = self._open_block(item_id, {"type": "thinking", "thinking": "", "signature": ""})
+            self._chunk_queue.append(_content_block_delta(block_idx, {"type": "thinking_delta", "thinking": delta}))
             return
 
         # ---- function call arguments delta ----
@@ -175,11 +264,7 @@ class AnthropicResponsesStreamWrapper:
                 else self._current_block_index
             )
             self._chunk_queue.append(
-                {
-                    "type": "content_block_delta",
-                    "index": block_idx,
-                    "delta": {"type": "input_json_delta", "partial_json": delta},
-                }
+                _content_block_delta(block_idx, {"type": "input_json_delta", "partial_json": delta})
             )
             return
 
@@ -189,15 +274,15 @@ class AnthropicResponsesStreamWrapper:
             item_id = (
                 getattr(item, "id", None) or (item.get("id") if isinstance(item, dict) else None) if item else None
             )
+            if _field(item, "type") == "web_search_call":
+                self._queue_web_search_call(item)
+                return
+            # An item that never opened a block (an unsupported hosted tool) must not
+            # emit a stop for whichever block happens to be open.
             block_idx = self._item_id_to_block_index.get(item_id, -1) if item_id else self._current_block_index
             if block_idx < 0:
                 return
-            self._chunk_queue.append(
-                {
-                    "type": "content_block_stop",
-                    "index": block_idx,
-                }
-            )
+            self._chunk_queue.append(_content_block_stop(block_idx))
             return
 
         # ---- response completed -> message_delta + message_stop ----
@@ -232,6 +317,8 @@ class AnthropicResponsesStreamWrapper:
                     if out_type == "function_call":
                         stop_reason = "tool_use"
                         break
+
+            self._queue_web_search_tool_result_block()
 
             self._chunk_queue.append(
                 {

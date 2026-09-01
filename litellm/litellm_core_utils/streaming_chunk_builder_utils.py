@@ -329,6 +329,13 @@ class ChunkProcessor:
         # Fall back to first chunk's model if no different model found
         return first_chunk_model
 
+    @staticmethod
+    def _get_role_from_choice(choice: Any) -> str:
+        delta = choice.get("delta") if isinstance(choice, dict) else getattr(choice, "delta", None)
+        if isinstance(delta, dict):
+            return delta.get("role") or "assistant"
+        return getattr(delta, "role", None) or "assistant"
+
     def build_base_response(self, chunks: Sequence["_BaseChunk"]) -> ModelResponse:
         chunk = self.first_chunk
         id: Final = ChunkProcessor._get_chunk_id(chunks)
@@ -339,8 +346,12 @@ class ChunkProcessor:
         model: Final = ChunkProcessor._get_model_from_chunks(chunks, first_chunk_model)
         system_fingerprint: Final = chunk.get("system_fingerprint", None)
 
-        first_chunk_with_choices: Final = next((c for c in chunks if c.get("choices")), chunk)
-        role: Final = first_chunk_with_choices["choices"][0]["delta"]["role"]
+        first_chunk_with_choices: Final = next((c for c in chunks if c.get("choices")), None)
+        role: Final = (
+            ChunkProcessor._get_role_from_choice(first_chunk_with_choices["choices"][0])
+            if first_chunk_with_choices is not None
+            else "assistant"
+        )
         finish_reason = "stop"
         for chunk in chunks:
             if "choices" in chunk and len(chunk["choices"]) > 0:

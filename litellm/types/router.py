@@ -164,6 +164,10 @@ class ModelInfo(MirroredPricingParams):
     # admin-toggled pause flag; mirrors LiteLLM_ProxyModelTable.blocked
     blocked: bool | None = None
 
+    # admin opt-in: admit requests to this model even when the caller is over
+    # budget. Spend is still tracked; only the pre-call budget gate is relaxed.
+    skip_budget_checks: bool | None = None
+
     # Bounds live on the model rather than litellm.constants: names there reach
     # litellm/__init__ through several modules' star re-exports, and a Final rebound that
     # way trips the basedpyright gate.

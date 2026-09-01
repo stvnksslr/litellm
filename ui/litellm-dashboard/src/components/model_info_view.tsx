@@ -419,6 +419,12 @@ export default function ModelInfoView({
           };
         }
         updatedModelInfo = applyPtuModelInfo(updatedModelInfo, values, ptuCostAttributionEnabled);
+        if (values.skip_budget_checks !== undefined) {
+          updatedModelInfo = {
+            ...updatedModelInfo,
+            skip_budget_checks: values.skip_budget_checks,
+          };
+        }
       } catch (e) {
         toast.fromError("Invalid JSON in Model Info");
         return;

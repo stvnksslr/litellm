@@ -3000,3 +3000,52 @@ async def test_a_provider_that_keeps_rejecting_is_not_retried_forever_on_the_asy
             )
 
     assert len(recorder.bodies) == 2
+def test_wrap_responses_fake_stream_forwards_request_context():
+    """Regression: _wrap_responses_response_as_fake_stream built the mock
+    iterator without litellm_metadata/request_data/call_type, so interception-
+    converted streams logged without model_info (no model_id in headers or
+    logging, wrong cost attribution). The wrapper must forward the same context
+    the real streaming iterators receive.
+    """
+    import time as time_module
+
+    from litellm.litellm_core_utils.litellm_logging import Logging as LitellmLogging
+    from litellm.llms.custom_httpx.llm_http_handler import BaseLLMHTTPHandler
+    from litellm.llms.openai.responses.transformation import OpenAIResponsesAPIConfig
+    from litellm.types.llms.openai import ResponseAPIUsage, ResponsesAPIResponse
+    from litellm.types.utils import CallTypes
+
+    logging_obj = LitellmLogging(
+        model="gpt-5.1",
+        messages=[{"role": "user", "content": "hi"}],
+        stream=True,
+        call_type="aresponses",
+        start_time=time_module.time(),
+        litellm_call_id="fake-stream-ctx-test",
+        function_id="fake-stream-ctx-test",
+    )
+    result = ResponsesAPIResponse(
+        id="resp_fake_stream_ctx",
+        created_at=1700000000,
+        model="gpt-5.1",
+        output=[],
+        usage=ResponseAPIUsage(input_tokens=5, output_tokens=3, total_tokens=8),
+    )
+    litellm_metadata = {"model_info": {"id": "router-model-id-123"}}
+    request_data = {"input": "hi", "litellm_params": {"model": "gpt-5.1"}}
+
+    iterator = BaseLLMHTTPHandler()._wrap_responses_response_as_fake_stream(
+        result=result,
+        model="gpt-5.1",
+        responses_api_provider_config=OpenAIResponsesAPIConfig(),
+        logging_obj=logging_obj,
+        custom_llm_provider="openai",
+        litellm_metadata=litellm_metadata,
+        request_data=request_data,
+        call_type=CallTypes.responses.value,
+    )
+
+    assert iterator.litellm_metadata == litellm_metadata
+    assert iterator.request_data == request_data
+    assert iterator.call_type == CallTypes.responses.value
+    assert iterator._hidden_params["model_id"] == "router-model-id-123"

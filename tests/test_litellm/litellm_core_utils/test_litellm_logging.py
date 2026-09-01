@@ -5994,3 +5994,54 @@ async def test_prompt_hook_injection_marker_recorded_for_every_surface(logging_o
         request_kwargs=untouched,
     )
     assert "litellm_gateway_injected_cache" not in untouched["metadata"]
+
+
+def test_get_assembled_streaming_response_unwraps_responses_event_when_stream_flag_unset():
+    """Responses-API terminal events must unwrap even when ``stream`` is not True.
+
+    A ResponseCompletedEvent is only ever emitted by a streaming iterator, but the
+    flag is not set when the iterator fakes a stream (MockResponsesAPIStreamingIterator).
+    Leaving it wrapped made the caller skip the cost block entirely and log spend=0,
+    because usage lives on ``.response.usage`` and the event has no ``.usage``.
+    """
+    import datetime
+
+    from litellm.types.llms.openai import (
+        ResponseAPIUsage,
+        ResponseCompletedEvent,
+        ResponsesAPIResponse,
+    )
+
+    def _event():
+        return ResponseCompletedEvent(
+            type="response.completed",
+            response=ResponsesAPIResponse(
+                id="resp_abc",
+                created_at=0,
+                model="azure/gpt-5.6-sol",
+                object="response",
+                output=[],
+                parallel_tool_calls=False,
+                tool_choice="auto",
+                tools=[],
+                usage=ResponseAPIUsage(
+                    input_tokens=61054, output_tokens=231, total_tokens=61285
+                ),
+            ),
+        )
+
+    now = datetime.datetime.now()
+    for stream_flag in (True, False):
+        assembled = _make_logging_obj(stream=stream_flag)._get_assembled_streaming_response(
+            result=_event(),
+            start_time=now,
+            end_time=now,
+            is_async=True,
+            streaming_chunks=[],
+        )
+        assert isinstance(assembled, ResponsesAPIResponse), (
+            f"event was not unwrapped with stream={stream_flag}"
+        )
+        # usage must survive the unwrap, or the cost calculator prices zero tokens
+        assert assembled.usage["prompt_tokens"] == 61054
+        assert assembled.usage["completion_tokens"] == 231

@@ -943,6 +943,9 @@ def generic_cost_per_token(
         threshold_is_inclusive=_uses_inclusive_token_thresholds(custom_llm_provider),
     )
 
+    if cache_creation and not cache_creation_cost:
+        cache_creation_cost = prompt_base_cost
+
     prompt_cost = _calculate_input_cost(
         prompt_tokens_details=prompt_tokens_details,
         model_info=model_info,

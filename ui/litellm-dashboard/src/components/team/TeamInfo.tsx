@@ -12,6 +12,7 @@ import {
   teamInfoCall,
   teamMemberAddCall,
   teamMemberDeleteCall,
+  teamMemberResetSpendCall,
   teamMemberUpdateCall,
   teamUpdateCall,
 } from "@/components/networking";
@@ -29,6 +30,13 @@ import { Card } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input as UIInput } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { SimpleTooltip, TooltipProvider } from "@/components/ui/tooltip";
@@ -435,6 +443,8 @@ const TeamInfoView: React.FC<TeamInfoProps> = ({
   const [loadingPolicies, setLoadingPolicies] = useState(false);
   const [memberToDelete, setMemberToDelete] = useState<Member | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [memberToResetSpend, setMemberToResetSpend] = useState<Member | null>(null);
+  const [isResettingSpend, setIsResettingSpend] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isTeamSaving, setIsTeamSaving] = useState(false);
   const [teamModelAliases, setTeamModelAliases] = useState<Record<string, string>>({});
@@ -713,6 +723,27 @@ const TeamInfoView: React.FC<TeamInfoProps> = ({
   const handleDeleteCancel = () => {
     setIsDeleteModalOpen(false);
     setMemberToDelete(null);
+  };
+
+  const handleResetSpendConfirm = async () => {
+    if (!memberToResetSpend?.user_id || !accessToken) return;
+
+    setIsResettingSpend(true);
+    try {
+      await teamMemberResetSpendCall(accessToken, teamId, memberToResetSpend.user_id);
+
+      toast.success("Team member spend reset to $0");
+
+      const updatedTeamData = await teamInfoCall(accessToken, teamId);
+      setTeamData(updatedTeamData);
+      onUpdate(updatedTeamData);
+    } catch (error) {
+      toast.fromError("Failed to reset team member spend");
+      console.error("Error resetting team member spend:", error);
+    } finally {
+      setIsResettingSpend(false);
+      setMemberToResetSpend(null);
+    }
   };
 
   const handleTeamUpdate = async (values: any) => {
@@ -1101,6 +1132,7 @@ const TeamInfoView: React.FC<TeamInfoProps> = ({
           teamData={teamData}
           canEditTeam={canEditTeam}
           handleMemberDelete={handleMemberDelete}
+          handleMemberResetSpend={setMemberToResetSpend}
           setSelectedEditMember={setSelectedEditMember}
           setIsEditMemberModalVisible={setIsEditMemberModalVisible}
           setIsAddMemberModalVisible={setIsAddMemberModalVisible}
@@ -2079,6 +2111,31 @@ const TeamInfoView: React.FC<TeamInfoProps> = ({
         onOk={handleDeleteConfirm}
         confirmLoading={isDeleting}
       />
+
+      <Dialog open={memberToResetSpend !== null} onOpenChange={(open) => !open && setMemberToResetSpend(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset Team Member Spend</DialogTitle>
+          </DialogHeader>
+          <p>
+            Reset current-cycle spend for{" "}
+            <strong>{memberToResetSpend?.user_email || memberToResetSpend?.user_id || "this member"}</strong> to{" "}
+            <strong>$0</strong>?
+          </p>
+          <p className="text-muted-foreground text-sm">
+            This is the spend checked against the member&apos;s team budget. Lifetime total spend and spend history in
+            logs are preserved.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMemberToResetSpend(null)} disabled={isResettingSpend}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={() => void handleResetSpendConfirm()} disabled={isResettingSpend}>
+              {isResettingSpend ? "Resetting..." : "Reset"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

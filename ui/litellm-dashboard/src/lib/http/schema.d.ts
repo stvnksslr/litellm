@@ -22413,6 +22413,8 @@ export interface components {
             assigned_team_ids?: string[] | null;
             /** Description */
             description?: string | null;
+            /** Listed Model Names */
+            listed_model_names?: string[] | null;
         };
         /** AccessGroupInfo */
         AccessGroupInfo: {
@@ -22451,6 +22453,8 @@ export interface components {
             created_by?: string | null;
             /** Description */
             description?: string | null;
+            /** Listed Model Names */
+            listed_model_names: string[];
             /**
              * Updated At
              * Format: date-time
@@ -22475,6 +22479,8 @@ export interface components {
             assigned_team_ids?: string[] | null;
             /** Description */
             description?: string | null;
+            /** Listed Model Names */
+            listed_model_names?: string[] | null;
         };
         /**
          * ActiveUsersAnalyticsResponse
@@ -38428,6 +38434,8 @@ export interface components {
             ptu_effective_from?: string | null;
             /** Ptu Effective To */
             ptu_effective_to?: string | null;
+            /** Skip Budget Checks */
+            skip_budget_checks?: boolean | null;
             /** Team Id */
             team_id?: string | null;
             /** Team Public Model Name */

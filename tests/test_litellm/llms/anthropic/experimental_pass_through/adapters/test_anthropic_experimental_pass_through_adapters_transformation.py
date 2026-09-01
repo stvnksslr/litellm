@@ -4,9 +4,9 @@ from typing import Any, cast
 import pytest
 
 import litellm
-
-
-
+from litellm.completion_extras.litellm_responses_transformation.transformation import (
+    LiteLLMResponsesTransformationHandler,
+)
 from litellm.litellm_core_utils.prompt_templates.common_utils import (
     TOOL_RESULT_IMAGE_PLACEHOLDER,
 )
@@ -798,6 +798,93 @@ def test_translate_openai_content_to_anthropic_empty_function_arguments():
     assert (
         result[0]["input"] == {}
     ), "Empty function arguments should result in empty dict"
+
+
+def test_translate_anthropic_to_openai_maps_stop_sequences_to_stop():
+    """Anthropic ``stop_sequences`` must become OpenAI ``stop``.
+
+    Passing it through verbatim made OpenAI/Azure reject the whole request with
+    "Unknown parameter: 'stop_sequences'".
+    """
+    adapter = LiteLLMAnthropicMessagesAdapter()
+
+    result, _ = adapter.translate_anthropic_to_openai(
+        anthropic_message_request={
+            "model": "gpt-5.6-luna",
+            "max_tokens": 128,
+            "stop_sequences": ["END", "STOP"],
+            "messages": [{"role": "user", "content": "count to 3"}],
+        }
+    )
+
+    assert result["stop"] == ["END", "STOP"]
+    assert "stop_sequences" not in result
+
+
+def _tool_call_response(arguments: str, finish_reason: str = "tool_calls") -> ModelResponse:
+    return ModelResponse(
+        id="chatcmpl-truncated",
+        choices=[
+            Choices(
+                finish_reason=finish_reason,
+                index=0,
+                message=Message(
+                    role="assistant",
+                    content=None,
+                    tool_calls=[
+                        ChatCompletionAssistantToolCall(
+                            id="call_truncated",
+                            type="function",
+                            function=Function(name="get_weather", arguments=arguments),
+                        )
+                    ],
+                ),
+            )
+        ],
+        model="gpt-5.6-luna",
+        usage=Usage(prompt_tokens=46, completion_tokens=16, total_tokens=62),
+    )
+
+
+def test_translate_openai_response_to_anthropic_drops_truncated_tool_call():
+    """A tool call cut off mid-arguments must degrade to stop_reason=max_tokens, not raise.
+
+    Providers report a truncated tool call as finish_reason="tool_calls" with an
+    unterminated arguments string, so the truncation is only detectable by the
+    arguments failing to parse. Emitting stop_reason="tool_use" with no tool_use
+    block would leave clients waiting for a call that never arrives.
+    """
+    adapter = LiteLLMAnthropicMessagesAdapter()
+
+    result = adapter.translate_openai_response_to_anthropic(response=_tool_call_response('{"city":"Os'))
+
+    assert result["stop_reason"] == "max_tokens"
+    assert [block for block in result["content"] if block["type"] == "tool_use"] == []
+
+
+def test_translate_openai_response_to_anthropic_keeps_intact_tool_call():
+    """The truncation path must not fire for a well-formed tool call."""
+    adapter = LiteLLMAnthropicMessagesAdapter()
+
+    result = adapter.translate_openai_response_to_anthropic(response=_tool_call_response('{"city":"Oslo"}'))
+
+    tool_uses = [block for block in result["content"] if block["type"] == "tool_use"]
+    assert result["stop_reason"] == "tool_use"
+    assert len(tool_uses) == 1
+    assert tool_uses[0]["input"] == {"city": "Oslo"}
+
+
+def test_translate_openai_content_to_anthropic_repairs_unclosed_tool_call_braces():
+    """Arguments missing only a closing brace are still repaired, not dropped."""
+    adapter = LiteLLMAnthropicMessagesAdapter()
+
+    result = adapter._translate_openai_content_to_anthropic(
+        choices=_tool_call_response('{"city":"Oslo"').choices
+    )
+
+    assert len(result) == 1
+    assert result[0]["type"] == "tool_use"
+    assert result[0]["input"] == {"city": "Oslo"}
 
 
 def test_translate_openai_content_to_anthropic_text_and_tool_calls():
@@ -3198,20 +3285,20 @@ def test_translate_streaming_openai_response_to_anthropic_cache_tokens_with_appl
 
 def test_is_web_search_tool():
     """Test detection of Anthropic web search tools."""
-    adapter = LiteLLMAnthropicMessagesAdapter()
+    from litellm.types.llms.anthropic import is_anthropic_web_search_tool
 
     # Tool with type starting with "web_search" should be detected
     web_search_tool_with_type = {
         "type": "web_search_20260209",
         "name": "web_search",
     }
-    assert adapter._is_web_search_tool(web_search_tool_with_type) is True
+    assert is_anthropic_web_search_tool(web_search_tool_with_type) is True
 
     # Tool with name "web_search" should be detected
     web_search_tool_with_name = {
         "name": "web_search",
     }
-    assert adapter._is_web_search_tool(web_search_tool_with_name) is True
+    assert is_anthropic_web_search_tool(web_search_tool_with_name) is True
 
     # Regular function tool should not be detected
     regular_tool = {
@@ -3219,7 +3306,19 @@ def test_is_web_search_tool():
         "description": "Get weather info",
         "input_schema": {"type": "object"},
     }
-    assert adapter._is_web_search_tool(regular_tool) is False
+    assert is_anthropic_web_search_tool(regular_tool) is False
+
+    # A caller-defined function tool named "web_search" is a client tool, not the
+    # hosted one; reducing it would silently delete the caller's tool.
+    caller_tool_named_web_search = {
+        "name": "web_search",
+        "description": "my own search",
+        "input_schema": {"type": "object"},
+    }
+    assert is_anthropic_web_search_tool(caller_tool_named_web_search) is False
+
+    # web_fetch is a different hosted tool and must not match the web_search prefix
+    assert is_anthropic_web_search_tool({"type": "web_fetch_20250910", "name": "web_fetch"}) is False
 
 
 def test_translate_anthropic_to_openai_with_web_search_tool():
@@ -4630,3 +4729,141 @@ def test_a_bedrock_target_still_takes_output_config_not_the_declared_gate():
     assert openai_request["output_config"] == {"effort": "max"}
     assert "reasoning_effort" not in openai_request
     assert openai_request["thinking"] == {"type": "adaptive", "display": "omitted"}
+@pytest.mark.parametrize(
+    "anthropic_only_param",
+    [
+        {"defer_loading": True},
+        {"allowed_callers": ["some_tool"]},
+        {"input_examples": [{"location": "SF"}]},
+    ],
+)
+def test_translate_anthropic_tools_to_openai_keeps_anthropic_only_params_out_of_schema(anthropic_only_param):
+    """Same failure mode as #30557: Anthropic tool-level metadata must not be merged
+    into the OpenAI function `parameters`, which is a JSON Schema.
+
+    Claude Code sends `defer_loading` on every tool once tool search is enabled, so
+    this leaked a stray key into the schema of every tool on every request.
+    """
+    adapter = LiteLLMAnthropicMessagesAdapter()
+    input_schema = {
+        "type": "object",
+        "properties": {"location": {"type": "string"}},
+        "required": ["location"],
+    }
+    tools = [
+        {
+            "type": "custom",
+            "name": "get_weather",
+            "description": "Get weather",
+            "input_schema": input_schema,
+            **anthropic_only_param,
+        }
+    ]
+
+    new_tools, _ = adapter.translate_anthropic_tools_to_openai(tools=tools)
+
+    assert new_tools[0]["function"]["parameters"] == input_schema
+    leaked_key = next(iter(anthropic_only_param))
+    assert leaked_key not in new_tools[0]["function"]["parameters"]
+
+
+def test_translate_anthropic_tools_to_openai_still_forwards_computer_tool_kwargs():
+    """Guard against over-correcting the fix above.
+
+    Computer tools carry their sizing as tool-level keys, and the reverse mapping
+    in AnthropicConfig._map_tools reads them back out of function.parameters, so
+    they must keep flowing into the schema dict.
+    """
+    adapter = LiteLLMAnthropicMessagesAdapter()
+    tools = [
+        {
+            "type": "computer_20250124",
+            "name": "computer",
+            "display_width_px": 1024,
+            "display_height_px": 768,
+            "display_number": 1,
+        }
+    ]
+
+    new_tools, _ = adapter.translate_anthropic_tools_to_openai(tools=tools)
+
+    params = new_tools[0]["function"]["parameters"]
+    assert params["display_width_px"] == 1024
+    assert params["display_height_px"] == 768
+    assert params["display_number"] == 1
+
+
+@pytest.mark.parametrize(
+    "tool_result_content",
+    [
+        pytest.param([], id="empty_content_list"),
+        pytest.param([{"type": "some_future_block"}], id="unknown_block_type"),
+    ],
+)
+def test_tool_result_without_renderable_content_still_emits_a_tool_message(
+    tool_result_content: Any,
+):
+    """
+    Every tool_use needs exactly one tool message, whatever its result contained.
+
+    Regression: tool_result payloads that yielded no text/image parts (an empty
+    content list, unrecognized block types) used to be dropped entirely.
+    Downstream that leaves the assistant's tool call with no result, and
+    bridging to /v1/responses 400s with
+    "No tool output found for function call call_...".
+    """
+    anthropic_messages = [
+        AnthropicMessagesUserMessageParam(role="user", content="read the file"),
+        AnthopicMessagesAssistantMessageParam(
+            role="assistant",
+            content=[
+                {
+                    "type": "tool_use",
+                    "id": "call_orphan_check",
+                    "name": "Read",
+                    "input": {"file_path": "/tmp/a.pdf"},
+                }
+            ],
+        ),
+        AnthropicMessagesUserMessageParam(
+            role="user",
+            content=[
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "call_orphan_check",
+                    "content": tool_result_content,
+                }
+            ],
+        ),
+    ]
+
+    adapter = LiteLLMAnthropicMessagesAdapter()
+    openai_messages = adapter.translate_anthropic_messages_to_openai(messages=anthropic_messages)
+
+    tool_messages = [msg for msg in openai_messages if isinstance(msg, dict) and msg.get("role") == "tool"]
+    assert [msg["tool_call_id"] for msg in tool_messages] == ["call_orphan_check"]
+    assert tool_messages[0]["content"] == ""
+
+    handler = LiteLLMResponsesTransformationHandler()
+    input_items, _ = handler.convert_chat_completion_messages_to_responses_api(openai_messages)
+    call_ids = {item["call_id"] for item in input_items if item.get("type") == "function_call"}
+    output_ids = {item["call_id"] for item in input_items if item.get("type") == "function_call_output"}
+    assert call_ids == {"call_orphan_check"}
+    assert call_ids - output_ids == set(), "function_call left without a function_call_output"
+
+
+def test_tool_result_missing_content_key_still_emits_a_tool_message():
+    anthropic_messages = [
+        AnthropicMessagesUserMessageParam(
+            role="user",
+            content=[{"type": "tool_result", "tool_use_id": "call_no_content_key"}],
+        ),
+    ]
+
+    adapter = LiteLLMAnthropicMessagesAdapter()
+    openai_messages = adapter.translate_anthropic_messages_to_openai(messages=anthropic_messages)
+
+    tool_messages = [msg for msg in openai_messages if isinstance(msg, dict) and msg.get("role") == "tool"]
+    assert len(tool_messages) == 1
+    assert tool_messages[0]["tool_call_id"] == "call_no_content_key"
+    assert tool_messages[0]["content"] == ""

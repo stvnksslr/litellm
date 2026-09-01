@@ -782,6 +782,7 @@ def test_handler_flattens_replayed_unencrypted_web_search_results():
                                     "title": "Releases",
                                     "page_age": None,
                                     "encrypted_content": "",
+                                    "snippet": "",
                                     "snippet": "Latest release v1.95.0",
                                 }
                             ],
@@ -949,6 +950,152 @@ def test_gate_translates_when_supported_endpoints_absent(monkeypatch):
     assert result == "translated"
     assert translation_calls["count"] == 1
     assert "config" not in captured
+
+
+def _bridge_stubs(monkeypatch):
+    """Patch both translation bridges so the routing decision can be read back."""
+    from litellm.llms.anthropic.experimental_pass_through.messages import handler
+
+    monkeypatch.setattr(
+        handler.LiteLLMMessagesToResponsesAPIHandler,
+        "anthropic_messages_handler",
+        staticmethod(lambda **kwargs: "responses"),
+    )
+    monkeypatch.setattr(
+        handler.LiteLLMMessagesToCompletionTransformationHandler,
+        "anthropic_messages_handler",
+        staticmethod(lambda **kwargs: "chat_completions"),
+    )
+
+
+WEB_SEARCH_TOOL = {"type": "web_search_20250305", "name": "web_search", "max_uses": 5}
+
+
+def _route(monkeypatch, **overrides):
+    from litellm.llms.anthropic.experimental_pass_through.messages.handler import (
+        anthropic_messages_handler,
+    )
+
+    _bridge_stubs(monkeypatch)
+    kwargs = {
+        "max_tokens": 100,
+        "messages": [{"role": "user", "content": "Hello"}],
+        "model": "azure/some-deployment",
+        "api_key": "sk-test",
+        "api_base": "https://host",
+        **overrides,
+    }
+    return anthropic_messages_handler(**kwargs)
+
+
+class TestHostedWebSearchRouting:
+    """Anthropic's server-side web search has no chat/completions equivalent - it is
+    silently reduced to ``web_search_options``, which nothing reads back. The
+    Responses API exposes it as a real hosted tool, so a request carrying it routes
+    there when the deployment can serve /v1/responses.
+
+    Claude Code sends web search as a standalone sub-request, so the gate must stay
+    narrow: everything else keeps the bridge it already used.
+    """
+
+    def test_web_search_on_responses_capable_deployment_uses_responses(self, monkeypatch):
+        assert (
+            _route(
+                monkeypatch,
+                tools=[WEB_SEARCH_TOOL],
+                model_info={"supported_endpoints": ["/v1/chat/completions", "/v1/responses"]},
+            )
+            == "responses"
+        )
+
+    def test_web_search_capability_read_from_the_model_map(self, monkeypatch):
+        """supported_endpoints is dropped by ModelInfoBase, so the raw model_cost
+        entry is the fallback; azure/gpt-5.6 declares /v1/responses there."""
+        assert _route(monkeypatch, model="azure/gpt-5.6", tools=[WEB_SEARCH_TOOL]) == "responses"
+
+    def test_bespoke_azure_deployment_resolves_through_base_model(self, monkeypatch):
+        """Real Azure deployments carry a bespoke name that is not in the model map.
+
+        ``azure/pb-ai-enablement-dev-gpt-5.6-luna-2026-07-09`` raises "model isn't
+        mapped yet", so without honouring ``base_model`` - the key such a deployment
+        already sets to get pricing - the gate never fires in production.
+        """
+        assert (
+            _route(
+                monkeypatch,
+                model="azure/pb-ai-enablement-dev-gpt-5.6-luna-2026-07-09",
+                tools=[WEB_SEARCH_TOOL],
+                model_info={"base_model": "azure/gpt-5.6-luna"},
+            )
+            == "responses"
+        )
+
+    def test_base_model_pointing_at_a_chat_only_model_does_not_route(self, monkeypatch):
+        assert (
+            _route(
+                monkeypatch,
+                model="azure/pb-ai-enablement-dev-gpt-4o",
+                tools=[WEB_SEARCH_TOOL],
+                model_info={"base_model": "azure/gpt-4o"},
+            )
+            == "chat_completions"
+        )
+
+    def test_unmapped_deployment_without_base_model_does_not_route(self, monkeypatch):
+        assert (
+            _route(
+                monkeypatch,
+                model="azure/pb-ai-enablement-dev-gpt-5.6-luna-2026-07-09",
+                tools=[WEB_SEARCH_TOOL],
+            )
+            == "chat_completions"
+        )
+
+    def test_web_search_on_chat_only_deployment_stays_on_chat_completions(self, monkeypatch):
+        assert (
+            _route(
+                monkeypatch,
+                tools=[WEB_SEARCH_TOOL],
+                model_info={"supported_endpoints": ["/v1/chat/completions"]},
+            )
+            == "chat_completions"
+        )
+
+    def test_request_without_web_search_is_not_rerouted(self, monkeypatch):
+        """The blast-radius guard: ordinary traffic to a responses-capable azure
+        deployment must keep using the bridge it uses today."""
+        assert (
+            _route(
+                monkeypatch,
+                tools=[{"name": "Bash", "input_schema": {"type": "object"}}],
+                model_info={"supported_endpoints": ["/v1/chat/completions", "/v1/responses"]},
+            )
+            == "chat_completions"
+        )
+
+    def test_client_tool_named_web_search_is_not_a_hosted_tool(self, monkeypatch):
+        assert (
+            _route(
+                monkeypatch,
+                tools=[{"name": "web_search", "description": "mine", "input_schema": {"type": "object"}}],
+                model_info={"supported_endpoints": ["/v1/chat/completions", "/v1/responses"]},
+            )
+            == "chat_completions"
+        )
+
+    def test_openai_still_routes_to_responses_without_tools(self, monkeypatch):
+        assert _route(monkeypatch, model="openai/some-model") == "responses"
+
+    def test_global_opt_out_wins(self, monkeypatch):
+        monkeypatch.setattr(litellm, "use_chat_completions_url_for_anthropic_messages", True)
+        assert (
+            _route(
+                monkeypatch,
+                tools=[WEB_SEARCH_TOOL],
+                model_info={"supported_endpoints": ["/v1/responses"]},
+            )
+            == "chat_completions"
+        )
 
 
 def test_gate_passthrough_skipped_when_only_chat_completions_supported(monkeypatch):

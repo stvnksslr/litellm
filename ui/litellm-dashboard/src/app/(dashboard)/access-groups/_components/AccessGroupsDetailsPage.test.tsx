@@ -49,6 +49,7 @@ const createMockAccessGroup = (overrides: Partial<AccessGroupResponse> = {}): Ac
   access_group_name: "Test Group",
   description: "A test access group",
   access_model_names: ["model-1", "model-2"],
+  listed_model_names: [],
   access_mcp_server_ids: ["mcp-1"],
   access_agent_ids: ["agent-1"],
   assigned_team_ids: ["team-1"],
@@ -245,7 +246,7 @@ describe("AccessGroupDetail", () => {
   it("should display Models tab with model IDs", () => {
     renderWithProviders(<AccessGroupDetail accessGroupId={accessGroupId} onBack={mockOnBack} />);
 
-    expect(screen.getByRole("tab", { name: /Models/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Models 2" })).toBeInTheDocument();
     expect(screen.getByText("model-1")).toBeInTheDocument();
     expect(screen.getByText("model-2")).toBeInTheDocument();
   });

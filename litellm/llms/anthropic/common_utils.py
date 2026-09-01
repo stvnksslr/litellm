@@ -4,7 +4,8 @@ This file contains common utils for anthropic calls.
 
 import copy
 import re
-from collections.abc import Mapping, MutableMapping, Sequence
+from collections.abc import Iterable, Mapping, MutableMapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import Any, Final, Literal
@@ -28,6 +29,8 @@ from litellm.types.llms.anthropic import (
     ANTHROPIC_OAUTH_TOKEN_PREFIX,
     AllAnthropicToolsValues,
     AnthropicMcpServerTool,
+    AnthropicResponseContentBlockWebSearchToolResult,
+    AnthropicWebSearchResultBlock,
 )
 from litellm.types.llms.openai import AllMessageValues
 from litellm.types.proxy.model_listing import ModelInfoResponse
@@ -52,6 +55,64 @@ ANTHROPIC_ERROR_STATUS_CODE_MAP: Final = MappingProxyType(
         "timeout_error": 504,
     }
 )
+
+@dataclass(frozen=True, slots=True)
+class AnthropicWebSearchResult:
+    """One entry of an Anthropic ``web_search_tool_result`` content block."""
+
+    url: str
+    title: str
+    page_age: str | None = None
+    snippet: str = ""
+
+
+_WEB_SEARCH_SOURCE_TYPES: Final = frozenset({"url_citation", "url"})
+
+
+def web_search_result_from_source(source: Mapping[str, object]) -> "AnthropicWebSearchResult | None":
+    """Map one Responses API url citation / search source to a search result.
+
+    The Responses API surfaces the sources a hosted web search used either as
+    ``url_citation`` annotations on the answer text or as ``url`` entries on the
+    search call itself, depending on model and api-version. Both carry the same
+    fields, so both are accepted; anything else (file citations, container
+    citations) is not a web source and is skipped.
+    """
+    url = source.get("url")
+    if source.get("type") not in _WEB_SEARCH_SOURCE_TYPES or not url:
+        return None
+    return AnthropicWebSearchResult(url=str(url), title=str(source.get("title") or ""))
+
+
+def build_anthropic_web_search_tool_result_block(
+    tool_use_id: str,
+    results: Iterable[AnthropicWebSearchResult],
+) -> Mapping[str, object]:
+    """Build an Anthropic-native ``web_search_tool_result`` content block.
+
+    Native Anthropic clients (Claude Code, Claude Desktop, the Anthropic SDK)
+    pair this block with the ``server_tool_use`` block carrying the same
+    ``tool_use_id`` in order to render sources. Shared by every surface that has
+    to synthesize server-side web search results - the interception callback
+    running the search itself, and the Responses API bridge translating a
+    provider-run search back into Anthropic shape.
+
+    Spec: https://docs.anthropic.com/en/api/web-search-tool
+    """
+    return AnthropicResponseContentBlockWebSearchToolResult(
+        tool_use_id=tool_use_id,
+        content=tuple(  # pyright: ignore[reportArgumentType]  # pydantic coerces the tuple into the List field
+            AnthropicWebSearchResultBlock(
+                url=result.url,
+                title=result.title,
+                page_age=result.page_age,
+                snippet=result.snippet,
+            )
+            for result in results
+        ),
+    ).model_dump()
+
+
 
 _BEDROCK_VERSION_SUFFIX_RE: Final = re.compile(r"-v\d+(?::\d+)?$")
 _INFERENCE_PROFILE_MINOR_RE: Final = re.compile(r":\d+$")

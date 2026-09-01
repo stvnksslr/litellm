@@ -62,6 +62,7 @@ export function AccessGroupDetail({ accessGroupId, onBack }: AccessGroupDetailPr
   }
 
   const modelIds = accessGroup.access_model_names ?? [];
+  const listedModelIds = accessGroup.listed_model_names ?? [];
   const mcpServerIds = accessGroup.access_mcp_server_ids ?? [];
   const agentIds = accessGroup.access_agent_ids ?? [];
   const keyIds = accessGroup.assigned_key_ids ?? [];
@@ -194,6 +195,11 @@ export function AccessGroupDetail({ accessGroupId, onBack }: AccessGroupDetailPr
                 Models
                 <Badge variant="secondary">{modelIds.length}</Badge>
               </TabsTrigger>
+              <TabsTrigger value="listed_models" className="flex-none gap-2 rounded-none px-4 py-2">
+                <LayersIcon className="size-4" />
+                Listed Models
+                <Badge variant="secondary">{listedModelIds.length}</Badge>
+              </TabsTrigger>
               <TabsTrigger value="mcp" className="flex-none gap-2 rounded-none px-4 py-2">
                 <ServerIcon className="size-4" />
                 MCP Servers
@@ -207,6 +213,9 @@ export function AccessGroupDetail({ accessGroupId, onBack }: AccessGroupDetailPr
             </TabsList>
             <TabsContent value="models" className="pt-4">
               <ResourceList ids={modelIds} emptyMessage="No models assigned to this group" />
+            </TabsContent>
+            <TabsContent value="listed_models" className="pt-4">
+              <ResourceList ids={listedModelIds} emptyMessage="No listed models configured for this group" />
             </TabsContent>
             <TabsContent value="mcp" className="pt-4">
               <ResourceList ids={mcpServerIds} emptyMessage="No MCP servers assigned to this group" />

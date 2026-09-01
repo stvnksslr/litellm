@@ -336,6 +336,7 @@ async def create_access_group(
                     "access_group_name": data.access_group_name,
                     "description": data.description,
                     "access_model_names": data.access_model_names or [],
+                    "listed_model_names": data.listed_model_names or [],
                     "access_mcp_server_ids": data.access_mcp_server_ids or [],
                     "access_agent_ids": data.access_agent_ids or [],
                     "assigned_team_ids": data.assigned_team_ids or [],
@@ -435,6 +436,7 @@ async def update_access_group(
                 "assigned_team_ids",
                 "assigned_key_ids",
                 "access_model_names",
+                "listed_model_names",
                 "access_mcp_server_ids",
                 "access_agent_ids",
             )

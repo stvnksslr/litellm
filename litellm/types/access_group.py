@@ -7,6 +7,7 @@ class AccessGroupCreateRequest(BaseModel):
     access_group_name: str
     description: str | None = None
     access_model_names: list[str] | None = None
+    listed_model_names: list[str] | None = None
     access_mcp_server_ids: list[str] | None = None
     access_agent_ids: list[str] | None = None
     assigned_team_ids: list[str] | None = None
@@ -17,6 +18,7 @@ class AccessGroupUpdateRequest(BaseModel):
     access_group_name: str | None = None
     description: str | None = None
     access_model_names: list[str] | None = None
+    listed_model_names: list[str] | None = None
     access_mcp_server_ids: list[str] | None = None
     access_agent_ids: list[str] | None = None
     assigned_team_ids: list[str] | None = None
@@ -28,6 +30,7 @@ class AccessGroupResponse(BaseModel):
     access_group_name: str
     description: str | None = None
     access_model_names: list[str]
+    listed_model_names: list[str]
     access_mcp_server_ids: list[str]
     access_agent_ids: list[str]
     assigned_team_ids: list[str]

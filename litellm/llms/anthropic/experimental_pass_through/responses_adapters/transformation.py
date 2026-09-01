@@ -6,9 +6,14 @@ path used for OpenAI and Azure models.
 """
 
 import json
-from collections.abc import Iterable, Mapping
-from itertools import groupby
+import uuid
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
+from itertools import chain, groupby
+from types import MappingProxyType
 from typing import Any, Final, cast
+
+from typing_extensions import assert_never
 
 from litellm.litellm_core_utils.prompt_templates.common_utils import (
     TOOL_RESULT_IMAGE_BOUNDARY,
@@ -19,20 +24,28 @@ from litellm.litellm_core_utils.prompt_templates.common_utils import (
 from litellm.litellm_core_utils.reasoning_effort_utils import (
     reasoning_effort_from_thinking_budget,
 )
+from litellm.llms.anthropic.common_utils import (
+    AnthropicWebSearchResult,
+    build_anthropic_web_search_tool_result_block,
+    web_search_result_from_source,
+)
 from litellm.llms.anthropic.experimental_pass_through.utils import (
     is_reasoning_auto_summary_enabled,
     prompt_cache_key_from_user_id,
 )
 from litellm.types.llms.anthropic import (
+    ANTHROPIC_HOSTED_TOOLS,
     AllAnthropicPassThroughMessageValues,
     AllAnthropicToolsValues,
     AnthropicFinishReason,
     AnthropicMessagesRequest,
     AnthropicMessagesToolChoice,
+    AnthropicResponseContentBlockServerToolUse,
     AnthropicResponseContentBlockText,
     AnthropicResponseContentBlockThinking,
     AnthropicResponseContentBlockToolUse,
     AnthropicSystemMessageContent,
+    is_anthropic_web_search_tool,
 )
 from litellm.types.llms.anthropic_messages.anthropic_response import (
     AnthropicMessagesResponse,
@@ -43,6 +56,216 @@ from litellm.types.llms.openai import (
     ResponseAPIUsage,
     ResponsesAPIResponse,
 )
+
+# The Responses API hosted web search tool. ``web_search_preview`` is the
+# legacy 4o-era alias; current models (incl. Azure gpt-5.x, which is the only
+# way Anthropic's server-side web search can be served on that backend) expect
+# the unprefixed name.
+RESPONSES_WEB_SEARCH_TOOL_TYPE = "web_search"
+_RESPONSES_WEB_SEARCH_TOOL: Mapping[str, object] = MappingProxyType({"type": RESPONSES_WEB_SEARCH_TOOL_TYPE})
+
+
+@dataclass(frozen=True, slots=True)
+class _Thinking:
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class _Text:
+    text: str
+    citations: tuple[AnthropicWebSearchResult, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _ToolUse:
+    id: str
+    name: str
+    arguments: Mapping[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class _SearchCall:
+    id: str
+    query: str
+
+
+_ResponseOutputItem = _Thinking | _Text | _ToolUse | _SearchCall
+
+
+_EMPTY_MAPPING: Mapping[str, object] = MappingProxyType({})
+
+
+def as_responses_item_mapping(item: object) -> Mapping[str, object]:
+    """Best-effort read-only view of a Responses API output item or event payload.
+
+    The typed ``openai.types.responses`` models for hosted tools vary across SDK
+    versions (and some backends return raw dicts), so read them structurally
+    rather than importing every concrete class.
+    """
+    if isinstance(item, dict):
+        return cast(Mapping[str, object], item)  # cast-ok: untyped SDK payload, read-only
+    dump = getattr(item, "model_dump", None)
+    if not callable(dump):
+        return _EMPTY_MAPPING
+    try:
+        return cast(Mapping[str, object], dump())  # cast-ok: model_dump() is untyped; read-only here
+    except (TypeError, ValueError):
+        return _EMPTY_MAPPING
+
+
+def web_search_call_query(item: Mapping[str, object]) -> str | None:
+    """The search query a ``web_search_call`` item ran, or None when it is not a search.
+
+    Azure/OpenAI report page fetches the model performed while searching as
+    ``web_search_call`` items too, with ``action.type == "open_page"`` and no
+    query. Anthropic models only the search itself as ``server_tool_use``, so a
+    fetch has nothing to translate into and is skipped rather than surfaced as a
+    search with an empty query.
+    """
+    action = as_responses_item_mapping(item.get("action"))
+    query = action.get("query")
+    if action.get("type") not in (None, "search") or not query:
+        return None
+    return str(query)
+
+
+def _json_object(arguments: object) -> Mapping[str, object]:
+    if not isinstance(arguments, str) or not arguments:
+        return _EMPTY_MAPPING
+    try:
+        parsed = json.loads(arguments)
+    except (json.JSONDecodeError, TypeError):
+        return _EMPTY_MAPPING
+    return parsed if isinstance(parsed, dict) else _EMPTY_MAPPING
+
+
+def _url_citations(annotations: object) -> tuple[AnthropicWebSearchResult, ...]:
+    if not isinstance(annotations, (list, tuple)):
+        return ()
+    mapped = (web_search_result_from_source(as_responses_item_mapping(annotation)) for annotation in annotations)
+    return tuple(result for result in mapped if result is not None)
+
+
+def _parse_output_item(item: object) -> tuple[_ResponseOutputItem, ...]:
+    from openai.types.responses import (
+        ResponseFunctionToolCall,
+        ResponseOutputMessage,
+        ResponseReasoningItem,
+    )
+
+    if isinstance(item, ResponseReasoningItem):
+        return tuple(
+            _Thinking(text=getattr(summary, "text", "")) for summary in item.summary if getattr(summary, "text", "")
+        )
+
+    if isinstance(item, ResponseOutputMessage):
+        return tuple(
+            _Text(
+                text=getattr(part, "text", "") or "",
+                citations=_url_citations(getattr(part, "annotations", None)),
+            )
+            for part in item.content
+            if getattr(part, "type", None) == "output_text"
+        )
+
+    if isinstance(item, ResponseFunctionToolCall):
+        return (
+            _ToolUse(
+                id=item.call_id or item.id or "",
+                name=item.name,
+                arguments=_json_object(item.arguments),
+            ),
+        )
+
+    data = as_responses_item_mapping(item)
+    item_type = data.get("type")
+
+    if item_type == "reasoning":
+        summaries = data.get("summary")
+        if not isinstance(summaries, (list, tuple)):
+            return ()
+        return tuple(
+            _Thinking(text=str(as_responses_item_mapping(summary).get("text")))
+            for summary in summaries
+            if as_responses_item_mapping(summary).get("text")
+        )
+
+    if item_type == "message":
+        parts = data.get("content")
+        if not isinstance(parts, (list, tuple)):
+            return ()
+        texts = (as_responses_item_mapping(part) for part in parts)
+        return tuple(
+            _Text(text=str(part.get("text") or ""), citations=_url_citations(part.get("annotations")))
+            for part in texts
+            if part.get("type") == "output_text"
+        )
+
+    if item_type == "function_call":
+        return (
+            _ToolUse(
+                id=str(data.get("call_id") or data.get("id") or ""),
+                name=str(data.get("name") or ""),
+                arguments=_json_object(data.get("arguments")),
+            ),
+        )
+
+    if item_type == "web_search_call":
+        query = web_search_call_query(data)
+        if query is None:
+            return ()
+        return (_SearchCall(id=str(data.get("id") or f"srvtoolu_{uuid.uuid4().hex}"), query=query),)
+
+    return ()
+
+
+def _parse_response_output(output: Iterable[object]) -> tuple[_ResponseOutputItem, ...]:
+    return tuple(chain.from_iterable(_parse_output_item(item) for item in output))
+
+
+def _fold_to_anthropic_blocks(items: tuple[_ResponseOutputItem, ...]) -> tuple[Mapping[str, object], ...]:
+    """Fold parsed output items into Anthropic content blocks.
+
+    Emits Anthropic's canonical ordering for a server-side search turn:
+    ``server_tool_use`` -> ``web_search_tool_result`` -> ``text``.
+
+    The Responses API reports citations aggregated on the final message rather
+    than per search call, so every citation is attached to the last search
+    call's result block instead of being split across them on a guess.
+    """
+    citations = tuple(chain.from_iterable(item.citations for item in items if isinstance(item, _Text)))
+    search_ids = tuple(item.id for item in items if isinstance(item, _SearchCall))
+    last_search_id = search_ids[-1] if search_ids else None
+
+    def blocks_for(item: _ResponseOutputItem) -> tuple[Mapping[str, object], ...]:
+        match item:
+            case _Thinking(text=text):
+                return (
+                    AnthropicResponseContentBlockThinking(type="thinking", thinking=text, signature=None).model_dump(),
+                )
+            case _Text(text=text):
+                return (AnthropicResponseContentBlockText(type="text", text=text).model_dump(),)
+            case _ToolUse(id=call_id, name=name, arguments=arguments):
+                return (
+                    AnthropicResponseContentBlockToolUse(
+                        type="tool_use", id=call_id, name=name, input=arguments
+                    ).model_dump(),
+                )
+            case _SearchCall(id=call_id, query=query):
+                return (
+                    AnthropicResponseContentBlockServerToolUse(
+                        id=call_id,
+                        name=ANTHROPIC_HOSTED_TOOLS.WEB_SEARCH.value,
+                        input={"query": query},
+                    ).model_dump(),
+                    build_anthropic_web_search_tool_result_block(
+                        tool_use_id=call_id,
+                        results=citations if call_id == last_search_id else (),
+                    ),
+                )
+        assert_never(item)
+
+    return tuple(chain.from_iterable(blocks_for(item) for item in items))
 
 
 class LiteLLMAnthropicToResponsesAPIAdapter:
@@ -384,11 +607,9 @@ class LiteLLMAnthropicToResponsesAPIAdapter:
         result: Final[list[dict[str, Any]]] = []
         for tool in tools:
             tool_dict = cast(dict[str, Any], tool)
-            tool_type = tool_dict.get("type", "")
             tool_name = tool_dict.get("name", "")
-            # web_search tool
-            if (isinstance(tool_type, str) and tool_type.startswith("web_search")) or tool_name == "web_search":
-                result.append({"type": "web_search_preview"})
+            if is_anthropic_web_search_tool(tool_dict):
+                result.append(dict(_RESPONSES_WEB_SEARCH_TOOL))
                 continue
             # Responses turns strict mode on when `strict` is omitted, silently rewriting
             # `required` to every property. Anthropic tools are non-strict unless asked.
@@ -407,13 +628,26 @@ class LiteLLMAnthropicToResponsesAPIAdapter:
     @staticmethod
     def translate_tool_choice_to_responses_api(
         tool_choice: AnthropicMessagesToolChoice,
+        translated_tools: Sequence[Mapping[str, object]] | None = None,
     ) -> str | dict[str, Any]:
-        """Convert Anthropic tool_choice to Responses API tool_choice."""
+        """Convert Anthropic tool_choice to Responses API tool_choice.
+
+        ``translated_tools`` is the already-converted tool list. A forced choice
+        naming Anthropic's hosted web search must resolve to the hosted
+        Responses tool, because ``translate_tools_to_responses_api`` replaced
+        that tool definition - emitting a function choice for it would name a
+        tool that is no longer in the request.
+        """
         tc_type: Final = tool_choice.get("type")
         if tc_type == "any":
             return "required"
         elif tc_type == "tool":
-            return {"type": "function", "name": tool_choice.get("name", "")}
+            name = tool_choice.get("name", "")
+            if name == ANTHROPIC_HOSTED_TOOLS.WEB_SEARCH.value and any(
+                tool.get("type") == RESPONSES_WEB_SEARCH_TOOL_TYPE for tool in translated_tools or ()
+            ):
+                return dict(_RESPONSES_WEB_SEARCH_TOOL)
+            return {"type": "function", "name": name}
         elif tc_type == "none":
             return "none"
         return "auto"
@@ -544,16 +778,18 @@ class LiteLLMAnthropicToResponsesAPIAdapter:
 
         # tools
         tools: Final = anthropic_request.get("tools")
-        if tools:
-            responses_kwargs["tools"] = self.translate_tools_to_responses_api(
-                cast(list[AllAnthropicToolsValues], tools)
-            )
+        translated_tools: Final[Sequence[Mapping[str, object]]] = (
+            self.translate_tools_to_responses_api(cast(list[AllAnthropicToolsValues], tools)) if tools else ()
+        )
+        if translated_tools:
+            responses_kwargs["tools"] = translated_tools
 
         # tool_choice
         tool_choice: Final = anthropic_request.get("tool_choice")
-        if tool_choice:
+        if tool_choice and translated_tools:
             responses_kwargs["tool_choice"] = self.translate_tool_choice_to_responses_api(
-                cast(AnthropicMessagesToolChoice, tool_choice)
+                cast(AnthropicMessagesToolChoice, tool_choice),
+                translated_tools=translated_tools,
             )
 
         # thinking -> reasoning
@@ -614,69 +850,11 @@ class LiteLLMAnthropicToResponsesAPIAdapter:
         """
         Translate an OpenAI ResponsesAPIResponse to AnthropicMessagesResponse.
         """
-        from openai.types.responses import (
-            ResponseFunctionToolCall,
-            ResponseOutputMessage,
-            ResponseReasoningItem,
+        parsed = _parse_response_output(response.output)
+        content = list(_fold_to_anthropic_blocks(parsed))
+        stop_reason: AnthropicFinishReason = (
+            "tool_use" if any(isinstance(item, _ToolUse) for item in parsed) else "end_turn"
         )
-
-        content: Final[list[dict[str, Any]]] = []
-        stop_reason: AnthropicFinishReason = "end_turn"
-
-        for item in response.output:
-            if isinstance(item, ResponseReasoningItem):
-                content.extend(self._thinking_blocks_from_reasoning_item(item.summary))
-
-            elif isinstance(item, ResponseOutputMessage):
-                for part in item.content:
-                    if getattr(part, "type", None) == "output_text":
-                        content.append(
-                            AnthropicResponseContentBlockText(type="text", text=getattr(part, "text", "")).model_dump()
-                        )
-
-            elif isinstance(item, ResponseFunctionToolCall):
-                try:
-                    input_data = json.loads(item.arguments) if item.arguments else {}
-                except (json.JSONDecodeError, TypeError):
-                    input_data = {}
-                content.append(
-                    AnthropicResponseContentBlockToolUse(
-                        type="tool_use",
-                        id=item.call_id or item.id or "",
-                        name=item.name,
-                        input=input_data,
-                    ).model_dump()
-                )
-                stop_reason = "tool_use"
-
-            elif isinstance(item, dict):
-                item_type = item.get("type")
-                if item_type == "message":
-                    for part in item.get("content", []):
-                        if isinstance(part, dict) and part.get("type") == "output_text":
-                            content.append(
-                                AnthropicResponseContentBlockText(type="text", text=part.get("text", "")).model_dump()
-                            )
-                elif item_type == "reasoning":
-                    content.extend(
-                        self._thinking_blocks_from_reasoning_item(
-                            cast(Iterable[object], item.get("summary") or ()),  # cast-ok: untyped provider json
-                        )
-                    )
-                elif item_type == "function_call":
-                    try:
-                        input_data = json.loads(item.get("arguments", "{}"))
-                    except (json.JSONDecodeError, TypeError):
-                        input_data = {}
-                    content.append(
-                        AnthropicResponseContentBlockToolUse(
-                            type="tool_use",
-                            id=item.get("call_id") or item.get("id", ""),
-                            name=item.get("name", ""),
-                            input=input_data,
-                        ).model_dump()
-                    )
-                    stop_reason = "tool_use"
 
         # status -> stop_reason override
         if response.status == "incomplete":

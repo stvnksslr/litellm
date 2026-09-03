@@ -226,7 +226,7 @@ class TestQwenGlmThinkingDisable:
             "enable_thinking": False,
         }
 
-    def test_glm_deployment_disables_native_thinking(self):
+    def test_glm_deployment_uses_thinking_key_and_never_enable_thinking(self) -> None:
         result = _call_prepare(
             extra_kwargs={
                 "custom_llm_provider": "hosted_vllm",
@@ -237,8 +237,23 @@ class TestQwenGlmThinkingDisable:
         )
         completion_kwargs = result[0] if isinstance(result, tuple) else result
 
-        assert completion_kwargs["extra_body"]["enable_thinking"] is False
-        assert completion_kwargs["extra_body"]["chat_template_kwargs"]["enable_thinking"] is False
+        assert completion_kwargs["extra_body"] == {"chat_template_kwargs": {"thinking": False}}
+
+    def test_vertex_glm_5_3_flash_deployment_matched_by_litellm_params_uses_thinking_key(self) -> None:
+        result = _call_prepare(
+            extra_kwargs={
+                "custom_llm_provider": "vertex_ai",
+                "litellm_params": {"model": "vertex_ai/openai/glm-5-3-flash"},
+                "extra_body": {"chat_template_kwargs": {"some_option": "keep"}},
+            },
+            model="glm-5-3-flash",
+            max_tokens=8,
+        )
+        completion_kwargs = result[0] if isinstance(result, tuple) else result
+
+        assert completion_kwargs["extra_body"] == {
+            "chat_template_kwargs": {"some_option": "keep", "thinking": False},
+        }
 
     def test_explicit_disabled_thinking_uses_native_disable_flag(self):
         result = _call_prepare(
@@ -253,7 +268,8 @@ class TestQwenGlmThinkingDisable:
         completion_kwargs = result[0] if isinstance(result, tuple) else result
 
         assert "reasoning_effort" not in completion_kwargs
-        assert completion_kwargs["extra_body"]["enable_thinking"] is False
+        assert completion_kwargs["extra_body"]["chat_template_kwargs"]["thinking"] is False
+        assert "enable_thinking" not in completion_kwargs["extra_body"]
 
     def test_enabled_thinking_is_not_disabled(self):
         result = _call_prepare(

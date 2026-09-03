@@ -3,6 +3,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Final,
+    Literal,
     TypeAlias,
     cast,
 )
@@ -37,7 +38,8 @@ if TYPE_CHECKING:
 
 # Anthropic-only keys already mapped by the translator; strip on extra_kwargs re-merge.
 ANTHROPIC_ONLY_REQUEST_KEYS: Final[frozenset[str]] = frozenset({"output_config"})
-_QWEN_GLM_MODEL_MARKERS: Final[tuple[str, ...]] = ("qwen", "glm")
+_ThinkingFamily: TypeAlias = Literal["qwen", "glm"]
+_QWEN_GLM_MODEL_MARKERS: Final[tuple[_ThinkingFamily, ...]] = ("qwen", "glm")
 
 _AnthropicMessages: TypeAlias = "list[dict[str, object]]"
 _AnthropicSystem: TypeAlias = "str | list[dict[str, object]] | None"
@@ -90,13 +92,13 @@ def _extract_proxy_litellm_metadata(
     return litellm_metadata, user_api_key_auth
 
 
-def _is_qwen_or_glm_deployment(
+def _qwen_or_glm_family(
     completion_kwargs: Mapping[str, object], extra_kwargs: Mapping[str, object]
-) -> bool:
+) -> _ThinkingFamily | None:
     provider: Final = extra_kwargs.get("custom_llm_provider")
     provider_name: Final = provider.lower() if isinstance(provider, str) else None
     if provider_name is not None and provider_name not in {"hosted_vllm", "vertex_ai"}:
-        return False
+        return None
 
     model_info: Final = extra_kwargs.get("model_info")
     base_model: Final = model_info.get("base_model") if isinstance(model_info, dict) else None
@@ -109,11 +111,13 @@ def _is_qwen_or_glm_deployment(
         base_model,
         deployment_model,
     )
-    return any(
-        isinstance(candidate, str)
-        and any(marker in candidate.lower() for marker in _QWEN_GLM_MODEL_MARKERS)
-        for candidate in models
-    )
+    for candidate in models:
+        if not isinstance(candidate, str):
+            continue
+        for marker in _QWEN_GLM_MODEL_MARKERS:
+            if marker in candidate.lower():
+                return marker
+    return None
 
 
 def _disable_qwen_or_glm_thinking(
@@ -121,7 +125,8 @@ def _disable_qwen_or_glm_thinking(
     extra_kwargs: Mapping[str, object],
     thinking: dict | None,
 ) -> None:
-    if not _is_qwen_or_glm_deployment(completion_kwargs, extra_kwargs):
+    family: Final = _qwen_or_glm_family(completion_kwargs, extra_kwargs)
+    if family is None:
         return
     if isinstance(thinking, dict) and thinking.get("type") in {"enabled", "adaptive"}:
         return
@@ -138,8 +143,11 @@ def _disable_qwen_or_glm_thinking(
     chat_template_kwargs: Final = (
         dict(existing_chat_template_kwargs) if isinstance(existing_chat_template_kwargs, dict) else {}
     )
-    chat_template_kwargs["enable_thinking"] = False
-    extra_body["enable_thinking"] = False
+    if family == "glm":
+        chat_template_kwargs["thinking"] = False
+    else:
+        chat_template_kwargs["enable_thinking"] = False
+        extra_body["enable_thinking"] = False
     extra_body["chat_template_kwargs"] = chat_template_kwargs
     completion_kwargs["extra_body"] = extra_body
 

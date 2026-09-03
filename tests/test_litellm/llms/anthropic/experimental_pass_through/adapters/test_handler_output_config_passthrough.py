@@ -223,10 +223,9 @@ class TestQwenGlmThinkingDisable:
         assert completion_kwargs["extra_body"] == {
             "chat_template_kwargs": {"some_option": "keep", "enable_thinking": False},
             "other_option": "keep",
-            "enable_thinking": False,
         }
 
-    def test_glm_deployment_uses_thinking_key_and_never_enable_thinking(self) -> None:
+    def test_glm_deployment_is_left_alone(self) -> None:
         result = _call_prepare(
             extra_kwargs={
                 "custom_llm_provider": "hosted_vllm",
@@ -237,9 +236,9 @@ class TestQwenGlmThinkingDisable:
         )
         completion_kwargs = result[0] if isinstance(result, tuple) else result
 
-        assert completion_kwargs["extra_body"] == {"chat_template_kwargs": {"thinking": False}}
+        assert "extra_body" not in completion_kwargs
 
-    def test_vertex_glm_5_3_flash_deployment_matched_by_litellm_params_uses_thinking_key(self) -> None:
+    def test_vertex_glm_5_3_flash_never_receives_a_thinking_kwarg(self) -> None:
         result = _call_prepare(
             extra_kwargs={
                 "custom_llm_provider": "vertex_ai",
@@ -251,15 +250,26 @@ class TestQwenGlmThinkingDisable:
         )
         completion_kwargs = result[0] if isinstance(result, tuple) else result
 
-        assert completion_kwargs["extra_body"] == {
-            "chat_template_kwargs": {"some_option": "keep", "thinking": False},
-        }
+        assert completion_kwargs["extra_body"] == {"chat_template_kwargs": {"some_option": "keep"}}
+
+    def test_vertex_qwen3_8_deployment_matched_by_litellm_params(self) -> None:
+        result = _call_prepare(
+            extra_kwargs={
+                "custom_llm_provider": "vertex_ai",
+                "litellm_params": {"model": "vertex_ai/openai/qwen_qwen3_8-27b-fp8"},
+            },
+            model="claude-haiku-unlimited",
+            max_tokens=8,
+        )
+        completion_kwargs = result[0] if isinstance(result, tuple) else result
+
+        assert completion_kwargs["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
 
     def test_explicit_disabled_thinking_uses_native_disable_flag(self):
         result = _call_prepare(
             extra_kwargs={
                 "custom_llm_provider": "hosted_vllm",
-                "model_info": {"base_model": "hosted_vllm/glm-5_2-fp8"},
+                "model_info": {"base_model": "hosted_vllm/qwen3-8"},
             },
             model="claude-sonnet-unlimited",
             thinking={"type": "disabled"},
@@ -268,14 +278,13 @@ class TestQwenGlmThinkingDisable:
         completion_kwargs = result[0] if isinstance(result, tuple) else result
 
         assert "reasoning_effort" not in completion_kwargs
-        assert completion_kwargs["extra_body"]["chat_template_kwargs"]["thinking"] is False
-        assert "enable_thinking" not in completion_kwargs["extra_body"]
+        assert completion_kwargs["extra_body"]["chat_template_kwargs"]["enable_thinking"] is False
 
     def test_enabled_thinking_is_not_disabled(self):
         result = _call_prepare(
             extra_kwargs={
                 "custom_llm_provider": "hosted_vllm",
-                "model_info": {"base_model": "hosted_vllm/glm-5_2-fp8"},
+                "model_info": {"base_model": "hosted_vllm/qwen3-8"},
             },
             model="claude-sonnet-unlimited",
             thinking={"type": "enabled", "budget_tokens": 1024},

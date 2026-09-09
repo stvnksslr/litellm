@@ -4267,7 +4267,38 @@ def _tool_reference_block(tool_name="WebFetch"):
     return {"type": "tool_reference", "tool_name": tool_name}
 
 
-def test_tool_result_tool_reference_is_carried_through_untouched():
+def _catalog(*names):
+    return {
+        name: {"type": "function", "function": {"name": name, "description": f"{name} tool", "parameters": {"type": "object"}}}
+        for name in names
+    }
+
+
+def _expansion(*names):
+    lines = "\n".join(
+        f'<function>{{"description": "{name} tool", "name": "{name}", "parameters": {{"type": "object"}}}}</function>'
+        for name in names
+    )
+    return f"<functions>\n{lines}\n</functions>"
+
+
+def test_tool_result_tool_reference_expands_into_the_functions_block_the_tool_promises():
+    adapter = LiteLLMAnthropicMessagesAdapter()
+
+    result = adapter.translate_anthropic_messages_to_openai(
+        messages=[
+            _anthropic_tool_use_turn("toolu_01"),
+            _anthropic_tool_result_turn({"toolu_01": [_tool_reference_block()]}),
+        ],
+        tool_catalog=_catalog("WebFetch"),
+    )
+
+    assert [m["role"] for m in result] == ["assistant", "tool"]
+    assert result[1]["tool_call_id"] == "toolu_01"
+    assert result[1]["content"] == _expansion("WebFetch")
+
+
+def test_tool_result_tool_reference_without_a_catalog_entry_leaves_no_reference_part_behind():
     adapter = LiteLLMAnthropicMessagesAdapter()
 
     result = adapter.translate_anthropic_messages_to_openai(
@@ -4277,26 +4308,25 @@ def test_tool_result_tool_reference_is_carried_through_untouched():
         ]
     )
 
-    assert [m["role"] for m in result] == ["assistant", "tool"]
-    assert result[1]["tool_call_id"] == "toolu_01"
-    assert result[1]["content"] == [{"type": "tool_reference", "tool_name": "WebFetch"}]
+    assert result[1]["content"] == ""
 
 
-def test_tool_result_text_beside_tool_reference_keeps_both_parts_in_order():
+def test_tool_result_text_beside_tool_references_puts_one_expansion_first():
     adapter = LiteLLMAnthropicMessagesAdapter()
 
     result = adapter.translate_anthropic_messages_to_openai(
         messages=[
             _anthropic_tool_use_turn("toolu_01"),
             _anthropic_tool_result_turn(
-                {"toolu_01": [{"type": "text", "text": "loaded"}, _tool_reference_block("Grep")]}
+                {"toolu_01": [{"type": "text", "text": "loaded"}, _tool_reference_block("Grep"), _tool_reference_block("Glob")]}
             ),
-        ]
+        ],
+        tool_catalog=_catalog("Grep", "Glob"),
     )
 
     assert result[1]["content"] == [
+        {"type": "text", "text": _expansion("Grep", "Glob")},
         {"type": "text", "text": "loaded"},
-        {"type": "tool_reference", "tool_name": "Grep"},
     ]
 
 

@@ -1,9 +1,10 @@
 """Reasoning defaults for the self-deployed Vertex Model Garden coding models behind ``/v1/messages``.
 
 Qwen and GLM reason unless told otherwise, while a ``/v1/messages`` client that sends no ``thinking``
-expects none. Qwen takes ``chat_template_kwargs.enable_thinking: false``. GLM's template ignores that
-and only knows ``reasoning_effort`` ``low`` and ``high`` (anything else means its default, ``max``),
-so GLM gets ``low`` by default and a requested tier is collapsed onto those two. See fork-patches.md
+expects none. Qwen takes ``chat_template_kwargs.enable_thinking: false`` and its server only accepts
+``reasoning_effort`` ``low``, ``medium`` and ``xhigh`` (its default), so a requested tier is mapped onto
+those. GLM's template ignores that and only knows ``low`` and ``high`` (anything else means its default,
+``max``), so GLM gets ``low`` by default and a requested tier is collapsed onto those two. See fork-patches.md
 """
 
 from collections.abc import Mapping
@@ -18,6 +19,9 @@ EMPTY_OVERRIDES: Final[Mapping[str, object]] = MappingProxyType({})
 GLM_DEFAULT_REASONING_EFFORT: Final[str] = "low"
 _GLM_REASONING_EFFORTS: Final[Mapping[str, str]] = MappingProxyType(
     {"minimal": "low", "low": "low", "medium": "high", "high": "high", "xhigh": "high"}
+)
+_QWEN_REASONING_EFFORTS: Final[Mapping[str, str]] = MappingProxyType(
+    {"minimal": "low", "low": "low", "medium": "medium", "high": "xhigh", "xhigh": "xhigh", "max": "xhigh"}
 )
 _MODEL_GARDEN_PROVIDERS: Final[frozenset[str]] = frozenset({"hosted_vllm", "vertex_ai"})
 _MODEL_FAMILY_MARKERS: Final[tuple[tuple[ModelFamily, str], ...]] = (("qwen", "qwen"), ("glm", "glm"))
@@ -72,7 +76,9 @@ def default_reasoning_overrides(
     effort: Final = requested_reasoning_effort(completion_kwargs)
     match family:
         case "qwen":
-            if thinking_requested or effort is not None:
+            if effort is not None:
+                return MappingProxyType({"reasoning_effort": _QWEN_REASONING_EFFORTS.get(effort, effort)})
+            if thinking_requested:
                 return EMPTY_OVERRIDES
             return _qwen_thinking_disabled(completion_kwargs)
         case "glm":

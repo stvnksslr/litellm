@@ -21,6 +21,12 @@ The largest group. Upstream's Anthropic-compatible `/v1/messages` endpoint is go
 
 **Reasoning passthrough for OpenAI-compatible backends.** Backends that stream `reasoning_content` deltas (Model Garden's OpenAI-compatible route) had them dropped on the floor, and in-band errors mid-stream were silently swallowed; both now surface to the client
 
+**Tool schemas vLLM rejects.** Claude Code 2.1.266's Artifact tool carries a `pattern` with ECMAScript-only `\p{..}` escapes. Model Garden endpoints validate every tool schema with Python's `re`, so every request from a claude.ai-authenticated session failed with `is not a 'regex'`. The bridge now drops any `pattern` Python cannot compile before the tools leave `/v1/messages`; compilable patterns are untouched
+
+**Qwen reasoning effort.** The Qwen Model Garden server only accepts `reasoning_effort` `low`, `medium` and `xhigh`, so Claude Code's default `high` was rejected on every main-loop turn. The bridge now maps the requested tier onto those three, `high` landing on the server's own default `xhigh`
+
+**Tool search on OpenAI-shaped backends.** With `ENABLE_TOOL_SEARCH=true` the CLI defers MCP tools client-side and ships a discovered tool with `defer_loading` plus a `tool_reference` in the ToolSearch result. The bridge used to erase the reference, so the model saw an empty tool result, and forwarded the never-called `DeferredToolPlaceholder`. It now expands each reference into the `<functions>` block the ToolSearch description promises, forwards a deferred tool only once a reference names it (all of them when the client asks for Anthropic's server-side search tool, which the bridge cannot run), and keeps the placeholder out of the request
+
 Touches `litellm/llms/anthropic/**`, `litellm/llms/openai_like/**` and `litellm/litellm_core_utils/streaming_*`
 
 ## GPT-5.6 family enablement

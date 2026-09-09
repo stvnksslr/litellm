@@ -124,10 +124,10 @@ class TestQwenDeployment:
         assert kwargs["max_tokens"] == 2112
         assert kwargs["stop"] == ["</block>"]
 
-    def test_main_loop_keeps_thinking_on(self) -> None:
+    def test_main_loop_keeps_thinking_on_at_the_servers_xhigh(self) -> None:
         kwargs = _bridge(_load("main_loop"), QWEN_DEPLOYMENT)
         assert "extra_body" not in kwargs
-        assert kwargs["reasoning_effort"] == "high"
+        assert kwargs["reasoning_effort"] == "xhigh"
 
 
 @pytest.mark.parametrize(
@@ -136,3 +136,124 @@ class TestQwenDeployment:
 def test_fixture_metadata_is_scrubbed(name: str) -> None:
     user_id = json.loads(_load(name)["metadata"]["user_id"])
     assert user_id == {"device_id": "<device_id>", "account_uuid": "", "session_id": "<session_id>"}
+
+
+def _forwarded_tool_names(completion_kwargs: dict) -> list[str]:
+    return [tool["function"]["name"] for tool in completion_kwargs.get("tools", [])]
+
+
+def _tool_message(completion_kwargs: dict, tool_call_id: str) -> dict:
+    (message,) = [
+        m for m in completion_kwargs["messages"] if m.get("role") == "tool" and m["tool_call_id"] == tool_call_id
+    ]
+    return message
+
+
+def _functions_block(text: str) -> list[dict]:
+    lines = text.split("\n")
+    assert lines[0] == "<functions>" and lines[-1] == "</functions>"
+    return [json.loads(line.removeprefix("<function>").removesuffix("</function>")) for line in lines[1:-1]]
+
+
+@pytest.mark.parametrize("deployment", [GLM_DEPLOYMENT, QWEN_DEPLOYMENT])
+class TestToolSearch:
+    """``ENABLE_TOOL_SEARCH=true`` traffic: the CLI defers client-side, ships only discovered tools with
+    ``defer_loading`` plus a permanent ``DeferredToolPlaceholder``, and its ToolSearch result is a bare
+    ``tool_reference`` list followed by a ``Tool loaded.`` text block."""
+
+    def test_stage1_wire_shape_defers_only_the_placeholder(self, deployment: str) -> None:
+        fixture = _load("tool_search_stage1")
+        deferred = [tool["name"] for tool in fixture["tools"] if tool.get("defer_loading")]
+        assert deferred == ["DeferredToolPlaceholder"]
+        assert "ToolSearch" in [tool["name"] for tool in fixture["tools"]]
+
+    def test_stage1_forwards_every_loaded_tool_and_no_placeholder(self, deployment: str) -> None:
+        forwarded = _bridge(_load("tool_search_stage1"), deployment)
+
+        assert "ToolSearch" in _forwarded_tool_names(forwarded)
+        assert "DeferredToolPlaceholder" not in _forwarded_tool_names(forwarded)
+        assert "defer_loading" not in json.dumps(forwarded["tools"])
+
+    def test_stage2_forwards_the_discovered_tool_and_expands_the_reference(self, deployment: str) -> None:
+        fixture = _load("tool_search_stage2")
+        (discovered,) = [tool for tool in fixture["tools"] if tool["name"].startswith("mcp__")]
+        assert discovered["defer_loading"] is True
+
+        forwarded = _bridge(fixture, deployment)
+
+        assert discovered["name"] in _forwarded_tool_names(forwarded)
+        assert "DeferredToolPlaceholder" not in _forwarded_tool_names(forwarded)
+        search_result = _tool_message(forwarded, "call_05003f3e91704ae3885cfa93")
+        assert _functions_block(search_result["content"]) == [
+            {
+                "description": discovered["description"],
+                "name": discovered["name"],
+                "parameters": discovered["input_schema"],
+            }
+        ]
+        assert "tool_reference" not in json.dumps(forwarded["messages"])
+
+    def test_a_reference_from_an_earlier_turn_keeps_the_tool_loaded_later(self, deployment: str) -> None:
+        fixture = _load("tool_search_stage2")
+        later = {
+            **fixture,
+            "messages": [
+                *fixture["messages"],
+                {"role": "assistant", "content": [{"type": "text", "text": "Canned tomatoes expire in 3 days."}]},
+                {"role": "user", "content": [{"type": "text", "text": "check again for 14 days"}]},
+            ],
+        }
+
+        assert "mcp__pantry__pantry_expiring_soon" in _forwarded_tool_names(_bridge(later, deployment))
+
+    def test_a_reference_to_a_tool_the_client_did_not_send_is_dropped_quietly(self, deployment: str) -> None:
+        fixture = _load("tool_search_stage2")
+        without_discovered = {
+            **fixture,
+            "tools": [tool for tool in fixture["tools"] if not tool["name"].startswith("mcp__")],
+        }
+
+        forwarded = _bridge(without_discovered, deployment)
+
+        assert _tool_message(forwarded, "call_05003f3e91704ae3885cfa93")["content"] == ""
+        assert "tool_reference" not in json.dumps(forwarded["messages"])
+
+
+ARTIFACT_FIELD_PATTERN: Final = r'^(?!__.*__$)[^\p{Cc}\p{Cf}\p{Zl}\p{Zp}"\\./[\]]{1,200}$'
+
+
+@pytest.mark.parametrize("deployment", [GLM_DEPLOYMENT, QWEN_DEPLOYMENT])
+class TestArtifactTool:
+    """CLI 2.1.266's Artifact tool carries an ECMAScript-only ``\\p{..}`` pattern that vLLM's metaschema check
+    rejects, which failed every request from a claude.ai-authenticated session."""
+
+    def test_forwarded_parameters_pass_the_metaschema_check_vllm_runs(self, deployment: str) -> None:
+        from jsonschema import Draft202012Validator
+
+        fixture = {
+            **_load("tool_search_stage1"),
+            "tools": [
+                {
+                    "name": "Artifact",
+                    "description": "Render an HTML file to an Artifact",
+                    "input_schema": {
+                        "$schema": "https://json-schema.org/draft/2020-12/schema",
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "file_path": {"type": "string"},
+                            "field": {"type": "string", "pattern": ARTIFACT_FIELD_PATTERN},
+                            "asset_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+                        },
+                    },
+                }
+            ],
+        }
+
+        (artifact,) = _bridge(fixture, deployment)["tools"]
+
+        Draft202012Validator.check_schema(
+            artifact["function"]["parameters"], format_checker=Draft202012Validator.FORMAT_CHECKER
+        )
+        assert artifact["function"]["parameters"]["properties"]["field"] == {"type": "string"}
+        assert artifact["function"]["parameters"]["properties"]["asset_id"]["pattern"] == "^[0-9a-f]{32}$"

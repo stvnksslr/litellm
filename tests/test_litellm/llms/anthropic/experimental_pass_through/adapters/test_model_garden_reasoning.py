@@ -118,9 +118,18 @@ class TestDefaultReasoningOverridesQwen:
         thinking = {"type": "enabled", "budget_tokens": 1024}
         assert default_reasoning_overrides({"model": "claude-haiku-unlimited"}, QWEN_VERTEX, thinking) == {}
 
-    def test_requested_effort_is_left_alone(self) -> None:
+    def test_high_maps_onto_the_servers_default_xhigh(self) -> None:
         kwargs = {"model": "claude-haiku-unlimited", "reasoning_effort": "high"}
-        assert default_reasoning_overrides(kwargs, QWEN_VERTEX, None) == {}
+        assert default_reasoning_overrides(kwargs, QWEN_VERTEX, {"type": "adaptive"}) == {"reasoning_effort": "xhigh"}
+
+    def test_medium_and_low_pass_through_and_minimal_collapses_to_low(self) -> None:
+        for requested, expected in (("medium", "medium"), ("low", "low"), ("minimal", "low"), ("max", "xhigh")):
+            kwargs = {"model": "claude-haiku-unlimited", "reasoning_effort": {"effort": requested, "summary": "auto"}}
+            assert default_reasoning_overrides(kwargs, QWEN_VERTEX, None) == {"reasoning_effort": expected}
+
+    def test_unknown_tier_passes_through(self) -> None:
+        kwargs = {"model": "claude-haiku-unlimited", "reasoning_effort": "default"}
+        assert default_reasoning_overrides(kwargs, QWEN_VERTEX, None) == {"reasoning_effort": "default"}
 
     def test_none_effort_still_disables_thinking(self) -> None:
         kwargs = {"model": "claude-haiku-unlimited", "reasoning_effort": "none"}

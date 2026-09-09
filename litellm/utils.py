@@ -8210,6 +8210,12 @@ class ProviderConfigManager:
             return litellm.MistralConfig()
         elif model in litellm.vertex_ai_ai21_models:
             return litellm.VertexAIAi21Config()
+        elif model.startswith("openai/"):
+            from litellm.llms.vertex_ai.vertex_model_garden.transformation import (
+                VertexAIModelGardenOpenAIConfig,
+            )
+
+            return VertexAIModelGardenOpenAIConfig()
         else:
             return litellm.VertexAILlama3Config()
 

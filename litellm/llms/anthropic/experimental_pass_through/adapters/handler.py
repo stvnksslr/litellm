@@ -1,7 +1,6 @@
 from collections.abc import AsyncIterator, Coroutine, Iterator, Mapping
 from typing import (
     TYPE_CHECKING,
-    Any,
     Final,
     TypeAlias,
     cast,
@@ -12,6 +11,12 @@ from typing_extensions import TypedDict
 import litellm
 from litellm._logging import verbose_logger
 from litellm.litellm_core_utils.asyncify import run_async_function
+from litellm.llms.anthropic.experimental_pass_through.adapters.claude_code_classifier import (
+    glm_classifier_request_overrides,
+)
+from litellm.llms.anthropic.experimental_pass_through.adapters.model_garden_reasoning import (
+    default_reasoning_overrides,
+)
 from litellm.llms.anthropic.experimental_pass_through.adapters.transformation import (
     AnthropicAdapter,
 )
@@ -37,7 +42,6 @@ if TYPE_CHECKING:
 
 # Anthropic-only keys already mapped by the translator; strip on extra_kwargs re-merge.
 ANTHROPIC_ONLY_REQUEST_KEYS: Final[frozenset[str]] = frozenset({"output_config"})
-_QWEN_MODEL_MARKER: Final[str] = "qwen"
 
 _AnthropicMessages: TypeAlias = "list[dict[str, object]]"
 _AnthropicSystem: TypeAlias = "str | list[dict[str, object]] | None"
@@ -88,58 +92,6 @@ def _extract_proxy_litellm_metadata(
         return None, None
     user_api_key_auth: Final[UserAPIKeyAuth | None] = litellm_metadata.get("user_api_key_auth")
     return litellm_metadata, user_api_key_auth
-
-
-def _is_qwen_deployment(completion_kwargs: Mapping[str, object], extra_kwargs: Mapping[str, object]) -> bool:
-    provider: Final = extra_kwargs.get("custom_llm_provider")
-    provider_name: Final = provider.lower() if isinstance(provider, str) else None
-    if provider_name is not None and provider_name not in {"hosted_vllm", "vertex_ai"}:
-        return False
-
-    model_info: Final = extra_kwargs.get("model_info")
-    base_model: Final = model_info.get("base_model") if isinstance(model_info, dict) else None
-    deployment_params: Final = extra_kwargs.get("litellm_params")
-    deployment_model: Final = (
-        deployment_params.get("model") if isinstance(deployment_params, dict) else None
-    )
-    models: Final = (
-        completion_kwargs.get("model"),
-        base_model,
-        deployment_model,
-    )
-    return any(
-        isinstance(candidate, str) and _QWEN_MODEL_MARKER in candidate.lower() for candidate in models
-    )
-
-
-def _disable_qwen_thinking(
-    completion_kwargs: dict[str, Any],
-    extra_kwargs: Mapping[str, object],
-    thinking: dict | None,
-) -> None:
-    # GLM is deliberately excluded. Its template ignores `thinking`, and `enable_thinking`
-    # drops the `<think>` prefill its reasoning parser keys on, so the model reasons into
-    # `content` instead of `reasoning_content`. See fork-patches.md
-    if not _is_qwen_deployment(completion_kwargs, extra_kwargs):
-        return
-    if isinstance(thinking, dict) and thinking.get("type") in {"enabled", "adaptive"}:
-        return
-
-    reasoning_effort: Final = completion_kwargs.get("reasoning_effort")
-    if isinstance(reasoning_effort, str) and reasoning_effort != "none":
-        return
-    if isinstance(reasoning_effort, dict) and reasoning_effort.get("effort") not in {None, "none"}:
-        return
-
-    existing_extra_body: Final = completion_kwargs.get("extra_body")
-    extra_body: Final = dict(existing_extra_body) if isinstance(existing_extra_body, dict) else {}
-    existing_chat_template_kwargs: Final = extra_body.get("chat_template_kwargs")
-    chat_template_kwargs: Final = (
-        dict(existing_chat_template_kwargs) if isinstance(existing_chat_template_kwargs, dict) else {}
-    )
-    chat_template_kwargs["enable_thinking"] = False
-    extra_body["chat_template_kwargs"] = chat_template_kwargs
-    completion_kwargs["extra_body"] = extra_body
 
 
 async def _prepare_context_managed_request(
@@ -612,11 +564,12 @@ class LiteLLMMessagesToCompletionTransformationHandler:
         # Must run BEFORE _route_openai_thinking, which prepends "responses/"
         # to the model name and would break get_model_info() lookups.
         LiteLLMMessagesToCompletionTransformationHandler._normalize_reasoning_effort(completion_kwargs)
-        _disable_qwen_thinking(
-            completion_kwargs=completion_kwargs,
-            extra_kwargs=extra_kwargs,
-            thinking=thinking,
+        reasoning_overrides: Final = default_reasoning_overrides(completion_kwargs, extra_kwargs, thinking)
+        classifier_overrides: Final = glm_classifier_request_overrides(
+            {**completion_kwargs, **reasoning_overrides}, extra_kwargs
         )
+        for key, value in {**reasoning_overrides, **classifier_overrides}.items():
+            completion_kwargs[key] = value
 
         LiteLLMMessagesToCompletionTransformationHandler._route_openai_thinking_to_responses_api_if_needed(
             completion_kwargs,

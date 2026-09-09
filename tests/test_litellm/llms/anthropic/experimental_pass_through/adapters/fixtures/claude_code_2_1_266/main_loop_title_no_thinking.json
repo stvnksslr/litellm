@@ -1,0 +1,52 @@
+{
+  "model": "glm-5-3-flash",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "<session>\nRun these three Bash commands one at a time, each as its own tool call, and report each result verbatim: (1) c ...[295 chars elided]"
+        }
+      ]
+    }
+  ],
+  "system": [
+    {
+      "type": "text",
+      "text": "x-anthropic-billing-header: cc_version=2.1.266.795; cc_entrypoint=sdk-cli;"
+    },
+    {
+      "type": "text",
+      "text": "You are a Claude agent, built on Anthropic's Claude Agent SDK."
+    },
+    {
+      "type": "text",
+      "text": "You are naming a coding session so the user can pick it out of a long list of sessions. The title is a name for what the ...[2939 chars elided]"
+    }
+  ],
+  "tools": [],
+  "metadata": {
+    "user_id": "{\"device_id\": \"<device_id>\", \"account_uuid\": \"\", \"session_id\": \"<session_id>\"}"
+  },
+  "max_tokens": 32000,
+  "output_config": {
+    "effort": "high",
+    "format": {
+      "type": "json_schema",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "stream": true
+}

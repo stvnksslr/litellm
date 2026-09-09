@@ -197,6 +197,12 @@ def get_supported_openai_params(
                 return litellm.VertexAIAnthropicConfig().get_supported_openai_params(model=model)
             elif model.startswith("gemini"):
                 return litellm.VertexGeminiConfig().get_supported_openai_params(model=model)
+            elif model.startswith("openai/"):
+                from litellm.llms.vertex_ai.vertex_model_garden.transformation import (
+                    VertexAIModelGardenOpenAIConfig,
+                )
+
+                return VertexAIModelGardenOpenAIConfig().get_supported_openai_params(model=model)
             else:
                 return litellm.VertexAILlama3Config().get_supported_openai_params(model=model)
         elif request_type == "embeddings":

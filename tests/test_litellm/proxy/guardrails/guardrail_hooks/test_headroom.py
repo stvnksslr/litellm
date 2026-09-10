@@ -2966,3 +2966,36 @@ def test_unusable_timeout_falls_back_to_the_default(configured: float):
 
     assert guardrail.timeout.read == 60.0
     assert guardrail.timeout.connect == 5.0
+
+
+@pytest.mark.asyncio
+async def test_stream_conversion_does_not_leave_stream_options_on_the_request(
+    guardrail: HeadroomGuardrail,
+):
+    """The /v1/messages bridge sets stream_options={"include_usage": True} whenever the
+    client streams. Converting that call to a single non-streaming upstream call must not
+    ship stream_options: vLLM Model Garden endpoints reject the pair with
+    "Stream options can only be defined when `stream=True`"."""
+    from litellm.utils import get_optional_params
+
+    kwargs = {
+        "model": "openai/qwen3-8",
+        "stream": True,
+        "stream_options": {"include_usage": True},
+        "tools": [_retrieve_tool_definition()],
+    }
+
+    converted = await guardrail.async_pre_call_deployment_hook(kwargs=kwargs, call_type=CallTypes.acompletion)
+
+    assert converted is not None
+    assert converted["stream"] is False
+
+    optional_params = get_optional_params(
+        model=converted["model"],
+        custom_llm_provider="vertex_ai",
+        stream=converted["stream"],
+        stream_options=converted["stream_options"],
+        tools=converted["tools"],
+    )
+
+    assert "stream_options" not in optional_params

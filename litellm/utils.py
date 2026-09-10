@@ -3981,6 +3981,12 @@ def pre_process_non_default_params(
         additional_endpoint_specific_params=["messages"],
     )
 
+    # vLLM and SGLang reject stream_options unless stream is True, and the pair gets
+    # separated by clients sending it on a non-streaming request and by the interception
+    # hooks (headroom, websearch, code interpreter) that convert a stream to one call.
+    if passed_params.get("stream") is not True:
+        non_default_params.pop("stream_options", None)
+
     if "response_format" in non_default_params:
         if provider_config is not None:
             non_default_params["response_format"] = provider_config.get_json_schema_from_pydantic_object(

@@ -5765,3 +5765,51 @@ class TestHuggingFaceConfigFetch:
         assert _get_max_position_embeddings("some-org/some-model") == 512
         request_timeout = hf_config_route.calls.last.request.extensions["timeout"]
         assert request_timeout["read"] == HF_CONFIG_FETCH_TIMEOUT_SECONDS
+
+
+@pytest.mark.parametrize(
+    "model, custom_llm_provider",
+    [
+        ("openai/qwen3-8", "vertex_ai"),
+        ("gpt-4o", "openai"),
+    ],
+)
+@pytest.mark.parametrize("stream", [False, None])
+def test_get_optional_params_drops_stream_options_without_stream(model, custom_llm_provider, stream):
+    """A vLLM-backed Model Garden endpoint 400s on `stream_options` unless `stream` is
+    True. The pair gets separated when a client sends stream_options on a
+    non-streaming request, or when an interception hook (headroom) converts a
+    streaming call into one non-streaming upstream call."""
+    from litellm.utils import get_optional_params
+
+    optional_params: Final = get_optional_params(
+        model=model,
+        custom_llm_provider=custom_llm_provider,
+        stream=stream,
+        stream_options={"include_usage": True},
+        max_tokens=16,
+    )
+
+    assert "stream_options" not in optional_params
+    assert optional_params.get("max_tokens") == 16
+
+
+@pytest.mark.parametrize(
+    "model, custom_llm_provider",
+    [
+        ("openai/qwen3-8", "vertex_ai"),
+        ("gpt-4o", "openai"),
+    ],
+)
+def test_get_optional_params_keeps_stream_options_when_streaming(model, custom_llm_provider):
+    from litellm.utils import get_optional_params
+
+    optional_params: Final = get_optional_params(
+        model=model,
+        custom_llm_provider=custom_llm_provider,
+        stream=True,
+        stream_options={"include_usage": True},
+    )
+
+    assert optional_params["stream_options"] == {"include_usage": True}
+    assert optional_params["stream"] is True

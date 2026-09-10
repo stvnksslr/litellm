@@ -5,9 +5,9 @@ Everything below lives only on our fork; none of it is in the upstream open sour
 | | |
 | --- | --- |
 | Upstream base | v1.100.0 |
-| Fork commits | 3 |
-| Files touched | 108 |
-| Lines changed | 8,075 (43% tests) |
+| Fork commits | 6 |
+| Files touched | 129 |
+| Lines changed | 10,636 (55% tests) |
 
 ## Agentic coding clients on the proxy
 
@@ -68,6 +68,8 @@ Self-deployed Qwen, GLM and Gemma endpoints served through Vertex's OpenAI-compa
 GLM cannot be switched off the same way. Against the GLM 5.3 Flash endpoint (SGLang, `--reasoning-parser=glm45`, `zai-org/GLM-5.3-Flash`), `chat_template_kwargs.thinking: false` is inert and `enable_thinking: false` is worse than inert: the template stops emitting the `<think>` prefill the parser keys on, so the reasoning lands in `content` with a stray `</think>` and `reasoning_content` comes back empty. What its template does read is `reasoning_effort`, and only the values `low` and `high`; anything else means its default, `max`. So a request that reaches a GLM deployment without thinking or reasoning_effort enabled gets `reasoning_effort: low`, and a requested tier is collapsed onto the two the template knows (`minimal` to `low`, `medium` and up to `high`). Measured against the endpoint with the captured Claude Code classifier payload, `low` answers in 1 to 3 seconds with 8 to 50 output tokens where the default took 9 to 20 seconds and parsed half the time
 
 **Reasoning effort on Model Garden endpoints.** litellm resolves every `vertex_ai/openai/...` deployment to its generic Llama config, which never declared `reasoning_effort`, so `drop_params` removed it from every request and nothing a client asked for reached the model. Those endpoints are SGLang and vLLM servers that read it. A dedicated config for the `openai/` prefix now forwards it, unwrapping the summary-wrapped form litellm produces for adaptive thinking to its plain tier
+
+**stream_options without stream.** vLLM and SGLang reject any request carrying `stream_options` unless `stream` is true, and the two get separated on the way to the model. The /v1/messages bridge adds `stream_options: {include_usage: true}` whenever the client streams, and the headroom compression guardrail then converts that call into a single non-streaming upstream call so it can resolve its retrieve tool, which left the pair mismatched. A client sending `stream_options` on a non-streaming request hit the same wall. Both shapes reached Claude Code users as a 400 "Stream options can only be defined when `stream=True`" on qwen3-8 and glm, on every turn once a conversation grew large enough to compress. The param mapping layer now drops `stream_options` unless `stream` is true, which also covers the other hooks that convert a streaming call the same way (web search, code interpreter)
 
 **Classifier token budget.** Claude Code auto mode's permission classifier sends `</block>` as a stop sequence and a `max_tokens` computed inline in the binary with no setting that reaches it (2112 on CLI 2.1.259 through 2.1.266; a probe to `claude-sonnet-5` first with 64). At GLM's default effort that budget ran out before the verdict, and when the verdict was drafted inside the reasoning the stop sequence fired there and the response came back empty, so the call failed closed either way. The reasoning default above is what fixes it; the bridge additionally floors the budget at 4096, upward only, when the deployment is GLM and the request carries the verdict delimiter, as the backstop if the effort setting ever stops being honored. The match is deliberately fail-open: a future client that changes the delimiter simply stops matching. The exact stage-1, stage-2, probe and main-loop request shapes are recorded as fixtures under the adapter tests
 

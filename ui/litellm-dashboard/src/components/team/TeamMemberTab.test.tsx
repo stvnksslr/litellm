@@ -283,6 +283,7 @@ describe("TeamMembersComponent", () => {
         teamData={createMockTeamData()}
         canEditTeam={false}
         handleMemberDelete={mockHandleMemberDelete}
+        handleMemberResetSpend={mockHandleMemberResetSpend}
         setSelectedEditMember={mockSetSelectedEditMember}
         setIsEditMemberModalVisible={mockSetIsEditMemberModalVisible}
         setIsAddMemberModalVisible={mockSetIsAddMemberModalVisible}

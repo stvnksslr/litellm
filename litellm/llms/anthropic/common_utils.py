@@ -66,6 +66,7 @@ ANTHROPIC_ERROR_STATUS_CODE_MAP: Final = MappingProxyType(
     }
 )
 
+
 @dataclass(frozen=True, slots=True)
 class AnthropicWebSearchResult:
     """One entry of an Anthropic ``web_search_tool_result`` content block."""
@@ -121,7 +122,6 @@ def build_anthropic_web_search_tool_result_block(
             for result in results
         ),
     ).model_dump()
-
 
 
 _BEDROCK_VERSION_SUFFIX_RE: Final = re.compile(r"-v\d+(?::\d+)?$")

@@ -277,3 +277,45 @@ def test_update_valid_token_db_values_override_custom_auth_when_set():
     # DB values should win
     assert result.end_user_tpm_limit == 500
     assert result.end_user_model_max_budget == db_budget
+
+
+def _router_with_model(model_info: dict) -> litellm.Router:
+    return litellm.Router(
+        model_list=[
+            {
+                "model_name": "team-model",
+                "litellm_params": {"model": "openai/gpt-4o", "api_key": "sk-test"},
+                "model_info": model_info,
+            }
+        ]
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "model_info, key_budget_is_checked",
+    [
+        ({"skip_budget_checks": True}, False),
+        ({}, True),
+    ],
+)
+async def test_custom_auth_honors_budget_exempt_models_like_the_other_auth_paths(model_info, key_budget_is_checked):
+    valid_token = UserAPIKeyAuth(token="test_token", model_max_budget={"team-model": {"budget_limit": 1.0}})
+
+    with (
+        patch("litellm.proxy.proxy_server.llm_router", _router_with_model(model_info)),
+        patch("litellm.proxy.proxy_server.general_settings", {}),
+        patch(
+            "litellm.proxy.auth.user_api_key_auth._check_key_model_budget_with_fallback",
+            new_callable=AsyncMock,
+        ) as mock_key_budget_check,
+    ):
+        await _run_post_custom_auth_checks(
+            valid_token=valid_token,
+            request=None,
+            request_data={"model": "team-model"},
+            route="/v1/chat/completions",
+            parent_otel_span=None,
+        )
+
+    assert mock_key_budget_check.await_count == (1 if key_budget_is_checked else 0)

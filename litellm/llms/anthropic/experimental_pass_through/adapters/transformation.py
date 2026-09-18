@@ -2,7 +2,6 @@ import copy
 import hashlib
 import json
 from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
-from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final, Literal, TypeAlias, TypeVar, cast
 
 import litellm
@@ -179,6 +178,7 @@ from litellm.types.llms.openai import (
     ChatCompletionToolMessage,
     ChatCompletionToolParam,
     ChatCompletionToolParamFunctionChunk,
+    ChatCompletionToolReferenceObject,
     ChatCompletionUserMessage,
     ToolMessageContentPart,
 )
@@ -260,6 +260,7 @@ class AnthropicAdapter:
         ) = LiteLLMAnthropicMessagesAdapter().translate_anthropic_to_openai(
             anthropic_message_request=request_body,
             custom_llm_provider=custom_llm_provider,
+            emulate_tool_search=True,
         )
 
         return translated_body, tool_name_mapping
@@ -407,20 +408,20 @@ class LiteLLMAnthropicMessagesAdapter:
         return [
             "messages",
             "metadata",
-            "stop_sequences",
             "system",
             "tool_choice",
             "tools",
             "thinking",
             "output_format",
             "output_config",
+            "stop_sequences",
         ]
 
     def translate_anthropic_messages_to_openai(
         self,
         messages: list[AllAnthropicPassThroughMessageValues],
         model: str | None = None,
-        tool_catalog: ToolCatalog = MappingProxyType({}),
+        tool_catalog: ToolCatalog | None = None,
     ) -> list[AllMessageValues]:
         new_messages: Final[list[AllMessageValues]] = []
         for m in messages:
@@ -1164,9 +1165,13 @@ class LiteLLMAnthropicMessagesAdapter:
         anthropic_message_request: AnthropicMessagesRequest,
         *,
         custom_llm_provider: str | None = None,
+        emulate_tool_search: bool = False,
     ) -> tuple[ChatCompletionRequest, dict[str, str]]:
         """
         This is used by the beta Anthropic Adapter, for translating anthropic `/v1/messages` requests to the openai format.
+
+        ``emulate_tool_search`` expands ``tool_reference`` blocks into text for backends without
+        tool search. Callers that write the result back to Anthropic leave it off so the blocks survive.
 
         Returns:
             Tuple of (openai_request, tool_name_mapping)
@@ -1191,7 +1196,9 @@ class LiteLLMAnthropicMessagesAdapter:
         new_messages: Final[list[AllMessageValues]] = self.translate_anthropic_messages_to_openai(
             messages=messages_list,
             model=anthropic_message_request.get("model"),
-            tool_catalog=tool_catalog(new_kwargs.get("tools") or [], tool_name_mapping),
+            tool_catalog=(
+                tool_catalog(new_kwargs.get("tools") or [], tool_name_mapping) if emulate_tool_search else None
+            ),
         )
         ## ADD SYSTEM MESSAGE TO MESSAGES
         self._add_system_message_to_messages(new_messages, anthropic_message_request)
@@ -1244,16 +1251,18 @@ class LiteLLMAnthropicMessagesAdapter:
             return None
         return anthropic_image_source_to_openai_url(image_source)
 
-    def _tool_result_content(self, raw_content: object, tool_catalog: ToolCatalog) -> ToolResultContent:
+    def _tool_result_content(self, raw_content: object, tool_catalog: ToolCatalog | None) -> ToolResultContent:
         if isinstance(raw_content, str):
             return raw_content
         if not isinstance(raw_content, list):
             return ""
         items: Final = cast(Sequence[object], raw_content)  # cast-ok: untrusted client payload
-        expansion: Final = expand_tool_references(reference_names(raw_content), tool_catalog)
+        expansion: Final = expand_tool_references(reference_names(raw_content), tool_catalog or {})
         expansion_parts: Final = (ChatCompletionTextObject(type="text", text=expansion),) if expansion else ()
         parts: Final = expansion_parts + tuple(
-            part for part in (self._tool_result_part(item) for item in items) if part is not None
+            part
+            for part in (self._tool_result_part(item, keep_tool_references=tool_catalog is None) for item in items)
+            if part is not None
         )
         match parts:
             case ():
@@ -1263,7 +1272,7 @@ class LiteLLMAnthropicMessagesAdapter:
             case _:
                 return list(parts)  # mutable-ok: content must be a json list
 
-    def _tool_result_part(self, item: object) -> ToolMessageContentPart | None:
+    def _tool_result_part(self, item: object, *, keep_tool_references: bool) -> ToolMessageContentPart | None:
         if isinstance(item, str):
             return ChatCompletionTextObject(type="text", text=item)
         if not isinstance(item, dict):
@@ -1274,6 +1283,10 @@ class LiteLLMAnthropicMessagesAdapter:
                 return ChatCompletionTextObject(type="text", text=str(block.get("text") or ""))
             case "image" | "document":
                 return self._tool_result_image_part(block.get("source"))
+            case "tool_reference" if keep_tool_references:
+                return ChatCompletionToolReferenceObject(
+                    type="tool_reference", tool_name=str(block.get("tool_name") or "")
+                )
             case _:
                 return None
 

@@ -38,6 +38,7 @@ const accessGroup: AccessGroupResponse = {
   access_group_name: "Engineering",
   description: "Engineers",
   access_model_names: ["gpt-4"],
+  listed_model_names: [],
   access_mcp_server_ids: ["srv-1"],
   access_agent_ids: ["agent-1"],
   assigned_team_ids: [],

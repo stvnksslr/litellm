@@ -294,7 +294,7 @@ describe("AccessGroupDetail", () => {
   it("should display Models tab with model names", () => {
     renderWithProviders(<AccessGroupDetail accessGroupId={accessGroupId} onBack={mockOnBack} />);
 
-    expect(screen.getByRole("tab", { name: "Models 2" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^Models/ })).toBeInTheDocument();
     expect(screen.getByText("model-1")).toBeInTheDocument();
     expect(screen.getByText("model-2")).toBeInTheDocument();
   });

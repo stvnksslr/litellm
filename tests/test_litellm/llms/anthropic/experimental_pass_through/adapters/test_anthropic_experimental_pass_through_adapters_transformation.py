@@ -4462,7 +4462,8 @@ def test_tool_result_tool_reference_without_a_catalog_entry_leaves_no_reference_
         messages=[
             _anthropic_tool_use_turn("toolu_01"),
             _anthropic_tool_result_turn({"toolu_01": [_tool_reference_block()]}),
-        ]
+        ],
+        tool_catalog={},
     )
 
     assert result[1]["content"] == ""

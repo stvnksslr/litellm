@@ -53,6 +53,7 @@ def _field(source: Any, name: str) -> Any:
         return source.get(name)
     return getattr(source, name, None)
 
+
 if TYPE_CHECKING:
     from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLoggingObject
 

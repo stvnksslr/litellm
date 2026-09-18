@@ -1,6 +1,7 @@
-# Fork patch manifest (delta vs upstream v1.101.0, `v1.101.0..5e47e6b5bc`)
+# Fork patch manifest (delta vs upstream v1.101.0, `v1.101.0..da7b8d4d0b`)
 
-Line numbers are as of `5e47e6b5bc`. For modified files they are diff-hunk ranges (`git diff v1.101.0..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 132 files, +11,181 / -885, roughly 53% tests
+Line numbers are as of `da7b8d4d0b`. For modified files they are diff-hunk ranges (`git diff v1.101.0..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 130 files, +8,773 / -405, roughly 67% tests
+
 
 
 ## Agentic coding clients on the proxy (/v1/messages bridge)
@@ -39,8 +40,6 @@ Line numbers are as of `5e47e6b5bc`. For modified files they are diff-hunk range
 
 ## GPT-5.6 family enablement
 
-- `model_prices_and_context_window.json` — 16 dated `-2026-07-09` GPT-5.6 aliases (OpenAI plus global, US and EU Azure), each a copy of upstream's undated entry so prices track upstream
-- `litellm/model_prices_and_context_window_backup.json` — generated backup copy of the same entries
 - `litellm/llms/openai/chat/gpt_5_transformation.py` L104-L144 — `_gpt_5_minor_version` regex matched anywhere in deployment name; version-based `is_model_gpt_5_2/5_4/5_4_plus` checks; new `is_model_gpt_5_6_plus_model`; upstream's gpt-6 rule lives in `_gpt_5_minor_version_at_least`
 - `litellm/llms/azure/chat/gpt_5_transformation.py` L16-L24, L131-L141 — floor `max_completion_tokens` at 3 (`AZURE_GPT5_MIN_COMPLETION_TOKENS`) so one-token availability probes get empty-with-`length` instead of 400
 
@@ -109,7 +108,7 @@ Line numbers are as of `5e47e6b5bc`. For modified files they are diff-hunk range
 ## Tests
 
 - `tests/proxy_unit_tests/test_user_api_key_auth.py` L273-L391 — skip-budget-checks behavior in auth builder
-- `tests/test_litellm/litellm_core_utils/llm_cost_calc/test_llm_cost_calc_utils.py` L4770-L4966 — cache-write price fallback regression
+- `tests/test_litellm/litellm_core_utils/llm_cost_calc/test_llm_cost_calc_utils.py` L2, L4770-L4884 — cache-write price fallback regression
 - `tests/test_litellm/litellm_core_utils/prompt_templates/test_litellm_core_utils_prompt_templates_common_utils.py` L1560-L1588 — system message merging
 - `tests/test_litellm/litellm_core_utils/test_litellm_logging.py` L6260-L6513 — faked-stream terminal event costing
 - `tests/test_litellm/litellm_core_utils/test_streaming_chunk_builder_utils.py` L685-L792 — role fallback on choice-less streams
@@ -165,5 +164,5 @@ Line numbers are as of `5e47e6b5bc`. For modified files they are diff-hunk range
 
 - `litellm/proxy/management_endpoints/key_management_endpoints.py` — upstream captures `team_id` before the defaults loop itself; the file now matches upstream
 - `litellm/llms/anthropic/experimental_pass_through/adapters/transformation.py` — upstream ships `_translate_stop_sequences_to_openai`; the fork's copy and its duplicate call are gone, the fork's behavior test still covers it
-- `model_prices_and_context_window.json` — upstream owns every GPT-5.6 entry; the fork only adds the 16 dated `-2026-07-09` aliases, each a copy of upstream's undated entry
+- `model_prices_and_context_window.json`, `litellm/model_prices_and_context_window_backup.json` — identical to upstream; the fork carries no pricing data. Azure GPT-5.6 deployments need `model_info.base_model` because Azure echoes a dated snapshot id the map does not list
 - Dockerfiles — the wolfi glibc 2.44 and Python 3.13 pin fixes the fork was based on are part of v1.101.0

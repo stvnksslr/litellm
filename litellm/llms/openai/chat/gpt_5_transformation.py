@@ -138,6 +138,7 @@ class OpenAIGPT5Config(OpenAIGPTConfig):
         """Check if the model is gpt-5.4 or newer (5.4, 5.5, 5.6, etc., including pro)."""
         return cls._gpt_5_minor_version_at_least(model, 4)
 
+    # TODO: drop this helper and its tests; nothing outside tests calls it, and the fork should not carry unused patches
     @classmethod
     def is_model_gpt_5_6_plus_model(cls, model: str) -> bool:
         """Check if the model is gpt-5.6 or newer (5.6, 5.7, etc., including named/pro variants)."""

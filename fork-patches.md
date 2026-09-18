@@ -40,7 +40,7 @@ Line numbers are as of `da7b8d4d0b`. For modified files they are diff-hunk range
 
 ## GPT-5.6 family enablement
 
-- `litellm/llms/openai/chat/gpt_5_transformation.py` L104-L144 — `_gpt_5_minor_version` regex matched anywhere in deployment name; version-based `is_model_gpt_5_2/5_4/5_4_plus` checks; new `is_model_gpt_5_6_plus_model`; upstream's gpt-6 rule lives in `_gpt_5_minor_version_at_least`
+- `litellm/llms/openai/chat/gpt_5_transformation.py` L104-L145 — `_gpt_5_minor_version` regex matched anywhere in deployment name; version-based `is_model_gpt_5_2/5_4/5_4_plus` checks; new `is_model_gpt_5_6_plus_model`; upstream's gpt-6 rule lives in `_gpt_5_minor_version_at_least`; TODO drop `is_model_gpt_5_6_plus_model`, only tests call it
 - `litellm/llms/azure/chat/gpt_5_transformation.py` L16-L24, L131-L141 — floor `max_completion_tokens` at 3 (`AZURE_GPT5_MIN_COMPLETION_TOKENS`) so one-token availability probes get empty-with-`length` instead of 400
 
 ## Spend accuracy

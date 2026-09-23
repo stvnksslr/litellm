@@ -101,6 +101,7 @@ from openai.types.chat.chat_completion_chunk import Choice as OpenAIStreamingCho
 
 from litellm.litellm_core_utils.prompt_templates.common_utils import (
     anthropic_image_source_to_openai_url,
+    drop_non_python_regex_patterns,
     parse_tool_call_arguments,
     reasoning_content_from_thinking_blocks,
     with_prompt_cache_breakpoint,
@@ -116,7 +117,6 @@ from litellm.llms.anthropic.common_utils import (
     normalize_anthropic_tool_use_id,
     strip_encrypted_reasoning_blocks_from_anthropic_messages,
 )
-from litellm.llms.anthropic.experimental_pass_through.adapters.tool_schema import drop_uncompilable_patterns
 from litellm.llms.anthropic.experimental_pass_through.adapters.tool_search import (
     ToolCatalog,
     expand_tool_references,
@@ -785,7 +785,7 @@ class LiteLLMAnthropicMessagesAdapter:
                 name=truncated_name,
             )
             if "input_schema" in tool:
-                function_chunk["parameters"] = drop_uncompilable_patterns(tool["input_schema"])
+                function_chunk["parameters"] = dict(drop_non_python_regex_patterns(tool["input_schema"]))
             if "description" in tool:
                 function_chunk["description"] = tool["description"]
             if "strict" in tool:

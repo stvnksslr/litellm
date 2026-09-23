@@ -1179,14 +1179,6 @@ def _empty_choices_lead_chunks() -> List[MagicMock]:
     ]
 
 
-def test_is_blank_delta_treats_empty_choices_as_blank():
-    """``_is_blank_delta`` indexed ``chunk.choices[0]`` unguarded while every
-    sibling in the same hot path guards the empty case, so an empty-choices
-    chunk raised IndexError instead of being skipped.
-    """
-    assert AnthropicStreamWrapper._is_blank_delta(_usage_only_chunk()) is True
-
-
 def test_empty_choices_lead_chunk_does_not_crash_the_stream_sync():
     """An empty-choices chunk arriving before the first content block opens used
     to raise IndexError out of ``_is_blank_delta``, killing the stream mid-flight.

@@ -573,15 +573,11 @@ class AnthropicStreamWrapper(AdapterCompletionStreamWrapper):
                 will_merge_into_held = (
                     self.holding_stop_reason_chunk is not None and getattr(chunk, "usage", None) is not None
                 )
-                is_final_chunk = bool(chunk.choices) and chunk.choices[0].finish_reason is not None
-                processed_chunk = (
-                    LiteLLMAnthropicMessagesAdapter().translate_streaming_openai_response_to_anthropic(
-                        response=chunk,
-                        current_content_block_index=self.current_content_block_index,
-                        applied_edits=(self.applied_edits if is_final_chunk and not will_merge_into_held else None),
-                    )
-                    if chunk.choices
-                    else None
+                is_final_chunk = chunk.choices[0].finish_reason is not None
+                processed_chunk = LiteLLMAnthropicMessagesAdapter().translate_streaming_openai_response_to_anthropic(
+                    response=chunk,
+                    current_content_block_index=self.current_content_block_index,
+                    applied_edits=(self.applied_edits if is_final_chunk and not will_merge_into_held else None),
                 )
                 processed_chunk = self._with_refusal_stop_details(processed_chunk)
 
@@ -592,9 +588,6 @@ class AnthropicStreamWrapper(AdapterCompletionStreamWrapper):
                     self.queued_usage_chunk = True
                     self.holding_stop_reason_chunk = None
                     return self.chunk_queue.popleft()
-
-                if processed_chunk is None:
-                    continue
 
                 if self.queued_usage_chunk:
                     # Usage has already been merged + emitted. Any trailing
@@ -815,15 +808,11 @@ class AnthropicStreamWrapper(AdapterCompletionStreamWrapper):
                 will_merge_into_held = (
                     self.holding_stop_reason_chunk is not None and getattr(chunk, "usage", None) is not None
                 )
-                is_final_chunk = bool(chunk.choices) and chunk.choices[0].finish_reason is not None
-                processed_chunk = (
-                    LiteLLMAnthropicMessagesAdapter().translate_streaming_openai_response_to_anthropic(
-                        response=chunk,
-                        current_content_block_index=self.current_content_block_index,
-                        applied_edits=(self.applied_edits if is_final_chunk and not will_merge_into_held else None),
-                    )
-                    if chunk.choices
-                    else None
+                is_final_chunk = chunk.choices[0].finish_reason is not None
+                processed_chunk = LiteLLMAnthropicMessagesAdapter().translate_streaming_openai_response_to_anthropic(
+                    response=chunk,
+                    current_content_block_index=self.current_content_block_index,
+                    applied_edits=(self.applied_edits if is_final_chunk and not will_merge_into_held else None),
                 )
                 processed_chunk = self._with_refusal_stop_details(processed_chunk)
 
@@ -834,9 +823,6 @@ class AnthropicStreamWrapper(AdapterCompletionStreamWrapper):
                     self.queued_usage_chunk = True
                     self.holding_stop_reason_chunk = None
                     return self.chunk_queue.popleft()
-
-                if processed_chunk is None:
-                    continue
 
                 # Check if this processed chunk has a stop_reason - hold it for next chunk
 
@@ -1018,9 +1004,9 @@ class AnthropicStreamWrapper(AdapterCompletionStreamWrapper):
 
     def _with_refusal_stop_details(
         self,
-        processed_chunk: ContentBlockDelta | MessageBlockDelta | None,
-    ) -> ContentBlockDelta | MessageBlockDelta | None:
-        if processed_chunk is None or processed_chunk.get("type") != "message_delta" or not self._refusal_text:
+        processed_chunk: ContentBlockDelta | MessageBlockDelta,
+    ) -> ContentBlockDelta | MessageBlockDelta:
+        if processed_chunk.get("type") != "message_delta" or not self._refusal_text:
             return processed_chunk
         delta: Final = cast(Mapping[str, object], processed_chunk["delta"])  # cast-ok: keys checked before use
         if delta.get("stop_reason") == "max_tokens":
@@ -1087,8 +1073,6 @@ class AnthropicStreamWrapper(AdapterCompletionStreamWrapper):
             openai_chat_refusal_text,
         )
 
-        if not chunk.choices:
-            return True
         choice: Final = chunk.choices[0]
         if choice.finish_reason is not None:
             return False
@@ -1128,7 +1112,7 @@ class AnthropicStreamWrapper(AdapterCompletionStreamWrapper):
 
         from .transformation import LiteLLMAnthropicMessagesAdapter
 
-        if not chunk.choices or chunk.choices[0].finish_reason is not None:
+        if chunk.choices[0].finish_reason is not None:
             return False
 
         refusal_text: Final = openai_chat_refusal_text(chunk.choices[0].delta)

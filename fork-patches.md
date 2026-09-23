@@ -1,30 +1,26 @@
 # Fork patch manifest (delta vs upstream v1.102.1, `v1.102.1..HEAD`)
 
-Line numbers are as of the current `main-pitchbook` tip. For modified files they are diff-hunk ranges (`git diff v1.102.1..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 133 files, +8,815 / -435, roughly 66% tests
+Line numbers are as of the current `main-pitchbook` tip. For modified files they are diff-hunk ranges (`git diff v1.102.1..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 129 files, +8,610 / -420, roughly 65% tests
 
 
 
 ## Agentic coding clients on the proxy (/v1/messages bridge)
 
-- `litellm/llms/anthropic/experimental_pass_through/adapters/transformation.py` L119-L128, L161-L215 — import tool_schema/tool_search helpers; `_model_supports_web_search_options` gates web_search_options reduction
-- `litellm/llms/anthropic/experimental_pass_through/adapters/transformation.py` L746-L764, L788 — pass `defer_loading` through tool translation; drop hosted tools; sanitize tool input_schema via `drop_uncompilable_patterns`
+- `litellm/llms/anthropic/experimental_pass_through/adapters/transformation.py` L104, L120-L128, L161-L215 — import upstream `drop_non_python_regex_patterns` and the tool_search helpers; `_model_supports_web_search_options` gates web_search_options reduction
+- `litellm/llms/anthropic/experimental_pass_through/adapters/transformation.py` L746-L764, L788 — pass `defer_loading` through tool translation; drop hosted tools; sanitize tool input_schema via upstream `drop_non_python_regex_patterns` (upstream only applies it inside `OpenAIGPTConfig` for provider `openai`, so hosted_vllm / Model Garden targets of the bridge need this call)
 - `litellm/llms/anthropic/experimental_pass_through/adapters/transformation.py` L1023-L1043 — forward deferred tools only when a tool_reference names them (or server-side search requested); web_search tool becomes `web_search_options` when model supports it
 - `litellm/llms/anthropic/experimental_pass_through/adapters/transformation.py` L1187-L1211, L1260-L1272 — tool_reference blocks in messages expand to `<functions>` via `_tool_result_content`
 - `litellm/llms/anthropic/experimental_pass_through/adapters/transformation.py` L268, L1174, L1205-L1207, L1292-L1295 — expansion is opt-in via `emulate_tool_search`, set only by the bridge; write-back callers (guardrails, shadow eval) keep upstream's `tool_reference` passthrough
 - `litellm/llms/anthropic/experimental_pass_through/adapters/transformation.py` L1373-L1403 — `_count_openai_tool_calls`; one tool message per tool result
 - `litellm/llms/anthropic/experimental_pass_through/adapters/transformation.py` L1531-L1550 — compaction-block insertion; truncated tool calls map to `max_tokens` finish reason
-- `litellm/llms/anthropic/experimental_pass_through/adapters/tool_schema.py` L1-L51 — new: `drop_uncompilable_patterns` strips `pattern`/`patternProperties` regexes Python `re` cannot compile
 - `litellm/llms/anthropic/experimental_pass_through/adapters/tool_search.py` L1-L79 — new: tool-search emulation; reference extraction, `forwards_tool`, `expand_tool_references` building the `<functions>` block
 - `litellm/llms/anthropic/experimental_pass_through/adapters/handler.py` L14-L33 — import classifier + reasoning overrides and hosted-tool filter
 - `litellm/llms/anthropic/experimental_pass_through/adapters/handler.py` L510-L526 — strip Anthropic hosted tools from forwarded tools; drop dangling `tool_choice`/`parallel_tool_calls` when tools emptied
 - `litellm/llms/anthropic/experimental_pass_through/adapters/handler.py` L568-L573 — apply model-garden reasoning overrides then GLM classifier overrides before routing
-- `litellm/llms/anthropic/experimental_pass_through/adapters/streaming_iterator.py` L576-L599, L818-L841 — guard empty `chunk.choices` before indexing; skip translation of choice-less chunks
-- `litellm/llms/anthropic/experimental_pass_through/adapters/streaming_iterator.py` L1090-L1131 — do not treat choice-less chunk as final
 - `litellm/llms/anthropic/experimental_pass_through/messages/handler.py` L37-L41, L77-L114, L117-L145 — `_declares_responses_endpoint` / `_deployment_supports_responses_api` from model_info, base_model or model cost
 - `litellm/llms/anthropic/experimental_pass_through/messages/handler.py` L147, L640-L678 — thread `model_info` into `_should_route_to_responses_api` routing hook
 - `litellm/llms/anthropic/experimental_pass_through/responses_adapters/transformation.py` L69-L304 — new: hosted web-search parsing (`web_search_call` query extraction, url-citation mapping, `_fold_to_anthropic_blocks` emitting server_tool_use -> web_search_tool_result -> text); upstream v1.102.1's refusal and encrypted-reasoning output contract is folded into the same parser (refusal parts surface as text blocks, one thinking block per reasoning item with joined summary parts, encrypted content rides the signature or `redacted_thinking`, `exclude_none` on tool_use dumps)
 - `litellm/llms/anthropic/experimental_pass_through/responses_adapters/transformation.py` L652-L691, L832-L907 — translate web_search tool to Responses `web_search`; Responses-API `tool_choice` conversion using translated tool list
-- `litellm/llms/anthropic/experimental_pass_through/adapters/streaming_iterator.py` L1019-L1046 — `_with_refusal_stop_details` widened to Optional: upstream narrowed the helper's signature when it dropped its choice-less-chunk branch; the fork keeps that branch, so the helper must pass `None` through for the guard below to stay type-consistent
 - `litellm/llms/anthropic/experimental_pass_through/responses_adapters/streaming_iterator.py` L15-L54, L92-L97 — helpers for content-block events; web-search state on wrapper
 - `litellm/llms/anthropic/experimental_pass_through/responses_adapters/streaming_iterator.py` L132-L227, L271-L427 — record search sources from citations; queue `server_tool_use` + paired `web_search_tool_result` blocks; lazy thinking-block open
 - `litellm/llms/anthropic/common_utils.py` L7-L8, L39-L40 — imports for web-search result types
@@ -34,7 +30,6 @@ Line numbers are as of the current `main-pitchbook` tip. For modified files they
 - `litellm/completion_extras/litellm_responses_transformation/transformation.py` L1110-L1116 — `_convert_tools_to_responses_format` skips Anthropic hosted tools
 - `litellm/types/llms/anthropic.py` L644-L673 — new `AnthropicResponseContentBlockServerToolUse`, `AnthropicWebSearchResultBlock`, `AnthropicResponseContentBlockWebSearchToolResult` models
 - `litellm/types/llms/anthropic.py` L766-L796 — `is_anthropic_hosted_tool_type` and `is_anthropic_web_search_tool` predicates
-- `litellm/litellm_core_utils/streaming_chunk_builder_utils.py` L359-L381 — role fallback to "assistant" when no chunk carries choices (empty-stream guard)
 - `litellm/litellm_core_utils/streaming_handler.py` L2217-L2222 — guard choice-less chunks in `response_uptil_now` accumulation
 - `litellm/llms/openai_like/chat/handler.py` L19-L20, L70, L110 — stream via `OpenAIChatCompletionStreamingHandler` so `reasoning_content` deltas and mid-stream errors surface
 - `litellm/llms/custom_httpx/llm_http_handler.py` L3037-L3039, L5569-L5595 — thread `litellm_metadata`/`request_data`/`call_type` into responses streaming call
@@ -112,7 +107,7 @@ Line numbers are as of the current `main-pitchbook` tip. For modified files they
 - `tests/test_litellm/litellm_core_utils/llm_cost_calc/test_llm_cost_calc_utils.py` L2, L5153-L5267 — cache-write price fallback regression
 - `tests/test_litellm/litellm_core_utils/prompt_templates/test_litellm_core_utils_prompt_templates_common_utils.py` L1819-L1847 — system message merging
 - `tests/test_litellm/litellm_core_utils/test_litellm_logging.py` L6382-L7075 — faked-stream terminal event costing
-- `tests/test_litellm/litellm_core_utils/test_streaming_chunk_builder_utils.py` L687-L794 — role fallback on choice-less streams
+- `tests/test_litellm/litellm_core_utils/test_streaming_chunk_builder_utils.py` L687-L794 — role fallback on choice-less streams (regression tests only; upstream's `_get_role_from_chunks` satisfies them)
 - `tests/test_litellm/llms/anthropic/experimental_pass_through/adapters/test_anthropic_experimental_pass_through_adapters_transformation.py` L936-L1022 — content translation; L3288-L3321 web-search predicate; L4270-L4329 tool_reference expansion; L4849-L4986 output config gating
 - `tests/test_litellm/llms/anthropic/experimental_pass_through/adapters/test_claude_code_classifier.py` L1-L73 — classifier detection and max_tokens floor
 - `tests/test_litellm/llms/anthropic/experimental_pass_through/adapters/test_claude_code_request_shapes.py` L1-L259 — stage-1/stage-2/probe/main-loop request shapes over fixtures
@@ -120,8 +115,7 @@ Line numbers are as of the current `main-pitchbook` tip. For modified files they
 - `tests/test_litellm/llms/anthropic/experimental_pass_through/adapters/test_handler_output_config_passthrough.py` L220-L322, L353-L436 — output config stripping, prompt cache forwarding
 - `tests/test_litellm/llms/anthropic/experimental_pass_through/adapters/test_model_garden_reasoning.py` L1-L148 — Qwen/GLM reasoning defaults and tier mapping
 - `tests/test_litellm/llms/anthropic/experimental_pass_through/adapters/test_streaming_iterator_combined_chunk.py` L146-L201 — delayed usage chunk cache tokens
-- `tests/test_litellm/llms/anthropic/experimental_pass_through/adapters/test_streaming_iterator_first_delta.py` L1159-L1219 — tool block start flush
-- `tests/test_litellm/llms/anthropic/experimental_pass_through/adapters/test_tool_schema.py` L1-L103 — uncompilable pattern stripping
+- `tests/test_litellm/llms/anthropic/experimental_pass_through/adapters/test_streaming_iterator_first_delta.py` L1159-L1211 — tool block start flush; empty-choices lead chunk end-to-end (sync + async)
 - `tests/test_litellm/llms/anthropic/experimental_pass_through/adapters/test_tool_search.py` L1-L101 — reference expansion and deferred tool forwarding
 - `tests/test_litellm/llms/anthropic/experimental_pass_through/messages/test_anthropic_experimental_pass_through_messages_handler.py` L764, L932-L1077 — responses-endpoint routing gate
 - `tests/test_litellm/llms/anthropic/experimental_pass_through/responses_adapters/test_responses_adapters_streaming_iterator.py` L398-L695 — streaming web-search block emission
@@ -163,7 +157,13 @@ Line numbers are as of the current `main-pitchbook` tip. For modified files they
 
 ## Absorbed by upstream (no longer carried)
 
-v1.102.1 absorbed the fork's `timezone` import fix in `tests/test_litellm/proxy/auth/test_user_api_key_auth.py`. Nothing else new. Note for future rebases: upstream grew its own `_is_web_search_tool` predicate on `adapters/transformation.py`; the fork's `is_anthropic_web_search_tool` in `litellm/types/llms/anthropic.py` supersedes it and the upstream method is deleted on every rebase.
+v1.102.1 absorbed the fork's `timezone` import fix in `tests/test_litellm/proxy/auth/test_user_api_key_auth.py`. A later audit found three more patches that v1.102.1 already covered, now dropped:
+
+- `litellm/litellm_core_utils/streaming_chunk_builder_utils.py` — role fallback on choice-less streams; upstream's `_get_role_from_chunks` / `_role_of_choice` already handle it. The fork's regression tests stay
+- `litellm/llms/anthropic/experimental_pass_through/adapters/tool_schema.py` — `drop_uncompilable_patterns` duplicated upstream's `drop_non_python_regex_patterns` (#40485), which passes every case the fork's tests covered. The bridge now calls the upstream function
+- `litellm/llms/anthropic/experimental_pass_through/adapters/streaming_iterator.py` — choice-less guards in the translation loop, `_is_blank_delta`, `_should_start_new_content_block` and the widened `_with_refusal_stop_details`. v1.102.1's `_handle_choiceless_chunk` short-circuit runs first, so they could never fire; the end-to-end empty-choices tests pass without them
+
+Not dropped: the `no-default-models` strip in `litellm/proxy/auth/model_checks.py`. v1.102.1's `append_unique` hides the sentinel from the output, but a key whose model list is only the sentinel still wins the key-vs-team branch, so access-group team models never surface without the fork's strip. Note for future rebases: upstream grew its own `_is_web_search_tool` predicate on `adapters/transformation.py`; the fork's `is_anthropic_web_search_tool` in `litellm/types/llms/anthropic.py` supersedes it and the upstream method is deleted on every rebase.
 
 Absorbed by v1.101.0:
 

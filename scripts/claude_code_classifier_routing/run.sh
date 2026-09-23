@@ -7,6 +7,10 @@ repo=$(cd "$here/../.." && pwd)
 out=${HARNESS_OUT:-$(mktemp -d)}
 proxy_port=${HARNESS_PROXY_PORT:-4010}
 mkdir -p "$out/work" "$out/claude-config"
+if lsof -ti "tcp:8765,$proxy_port" -sTCP:LISTEN >/dev/null; then
+  echo "port 8765 or $proxy_port is already in use; stop the old harness first" >&2
+  exit 1
+fi
 
 "$repo/.venv/bin/python" "$here/fake_glm.py" --port 8765 >"$out/glm.log" 2>&1 &
 HARNESS_LOG="$out/routing.jsonl" VERTEXAI_PROJECT="${VERTEXAI_PROJECT:-pb-shared-infra-dev}" \

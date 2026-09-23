@@ -32,8 +32,7 @@ def assistant_message(body: JsonObject) -> JsonObject | None:
     messages: Final = _list(body.get("messages"))
     if not _list(body.get("tools")):
         return None
-    last: Final = messages[-1] if messages else None
-    if isinstance(last, dict) and last.get("role") == "tool":
+    if any(isinstance(message, dict) and message.get("role") == "tool" for message in messages):
         return {"role": "assistant", "content": "harness done"}
     arguments: Final = json.dumps({"command": PROBE_COMMAND, "description": "harness probe"})
     return {

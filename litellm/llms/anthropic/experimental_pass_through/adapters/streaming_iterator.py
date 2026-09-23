@@ -1018,9 +1018,9 @@ class AnthropicStreamWrapper(AdapterCompletionStreamWrapper):
 
     def _with_refusal_stop_details(
         self,
-        processed_chunk: ContentBlockDelta | MessageBlockDelta,
-    ) -> ContentBlockDelta | MessageBlockDelta:
-        if processed_chunk.get("type") != "message_delta" or not self._refusal_text:
+        processed_chunk: ContentBlockDelta | MessageBlockDelta | None,
+    ) -> ContentBlockDelta | MessageBlockDelta | None:
+        if processed_chunk is None or processed_chunk.get("type") != "message_delta" or not self._refusal_text:
             return processed_chunk
         delta: Final = cast(Mapping[str, object], processed_chunk["delta"])  # cast-ok: keys checked before use
         if delta.get("stop_reason") == "max_tokens":

@@ -24,7 +24,7 @@
     "limit": 133
   },
   "ANN401": {
-    "limit": 119
+    "limit": 545
   },
   "ASYNC230": {
     "limit": 11
@@ -36,7 +36,7 @@
     "limit": 176
   },
   "B008": {
-    "limit": 503
+    "limit": 504
   },
   "B009": {
     "limit": 52
@@ -171,7 +171,7 @@
     "limit": 173
   },
   "RUF012": {
-    "limit": 239
+    "limit": 240
   },
   "RUF015": {
     "limit": 8

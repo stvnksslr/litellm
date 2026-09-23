@@ -77,6 +77,7 @@ _RESPONSES_WEB_SEARCH_TOOL: Mapping[str, object] = MappingProxyType({"type": RES
 @dataclass(frozen=True, slots=True)
 class _Thinking:
     text: str
+    encrypted_content: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +156,18 @@ def _url_citations(annotations: object) -> tuple[AnthropicWebSearchResult, ...]:
     return tuple(result for result in mapped if result is not None)
 
 
+def _summary_text(summary: Iterable[object]) -> str:
+    """One reasoning item's summary parts joined into a single thinking string."""
+
+    def part_text(part: object) -> str:
+        if isinstance(part, Mapping):
+            mapping: Final = cast(Mapping[str, Any], part)  # cast-ok: summary parts are untyped provider json
+            return str(mapping.get("text") or "")
+        return str(getattr(part, "text", None) or "")
+
+    return REASONING_SUMMARY_PART_SEPARATOR.join(text for part in summary if (text := part_text(part)))
+
+
 def _parse_output_item(item: object) -> tuple[_ResponseOutputItem, ...]:
     from openai.types.responses import (
         ResponseFunctionToolCall,
@@ -163,9 +176,7 @@ def _parse_output_item(item: object) -> tuple[_ResponseOutputItem, ...]:
     )
 
     if isinstance(item, ResponseReasoningItem):
-        return tuple(
-            _Thinking(text=getattr(summary, "text", "")) for summary in item.summary if getattr(summary, "text", "")
-        )
+        return (_Thinking(text=_summary_text(item.summary), encrypted_content=getattr(item, "encrypted_content", None)),)
 
     if isinstance(item, ResponseOutputMessage):
         return tuple(
@@ -193,12 +204,11 @@ def _parse_output_item(item: object) -> tuple[_ResponseOutputItem, ...]:
 
     if item_type == "reasoning":
         summaries = data.get("summary")
+        encrypted_content = data.get("encrypted_content")
         if not isinstance(summaries, (list, tuple)):
-            return ()
-        return tuple(
-            _Thinking(text=str(as_responses_item_mapping(summary).get("text")))
-            for summary in summaries
-            if as_responses_item_mapping(summary).get("text")
+            summaries = ()
+        return (
+            _Thinking(text=_summary_text(summaries), encrypted_content=encrypted_content if isinstance(encrypted_content, str) else None),
         )
 
     if item_type == "message":
@@ -253,9 +263,20 @@ def _fold_to_anthropic_blocks(items: tuple[_ResponseOutputItem, ...]) -> tuple[M
 
     def blocks_for(item: _ResponseOutputItem) -> tuple[Mapping[str, object], ...]:
         match item:
-            case _Thinking(text=text):
+            case _Thinking(text=text, encrypted_content=encrypted_content):
+                if not isinstance(encrypted_content, str) or not encrypted_content:
+                    if not text:
+                        return ()
+                    return (
+                        AnthropicResponseContentBlockThinking(type="thinking", thinking=text, signature=None).model_dump(),
+                    )
+                signature: Final = encrypted_reasoning_signature(encrypted_content)
+                if not text:
+                    return (AnthropicResponseContentBlockRedactedThinking(type="redacted_thinking", data=signature).model_dump(),)
                 return (
-                    AnthropicResponseContentBlockThinking(type="thinking", thinking=text, signature=None).model_dump(),
+                    AnthropicResponseContentBlockThinking(
+                        type="thinking", thinking=text, signature=signature
+                    ).model_dump(),
                 )
             case _Text(text=text):
                 return (AnthropicResponseContentBlockText(type="text", text=text).model_dump(),)
@@ -263,7 +284,7 @@ def _fold_to_anthropic_blocks(items: tuple[_ResponseOutputItem, ...]) -> tuple[M
                 return (
                     AnthropicResponseContentBlockToolUse(
                         type="tool_use", id=call_id, name=name, input=arguments
-                    ).model_dump(),
+                    ).model_dump(exclude_none=True),
                 )
             case _SearchCall(id=call_id, query=query):
                 return (

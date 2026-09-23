@@ -64,7 +64,7 @@ def _function_line(tool: ChatCompletionToolParam) -> str:
         cast(Mapping[str, object], function["parameters"]) if "parameters" in function else {}  # cast-ok: json schema
     )
     definition: Final[dict[str, object]] = {
-        "description": function["description"] if "description" in function else "",
+        "description": function.get("description", ""),
         "name": function["name"],
         "parameters": parameters,
     }

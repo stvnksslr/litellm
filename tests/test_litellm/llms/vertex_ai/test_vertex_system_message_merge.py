@@ -9,13 +9,9 @@ leading system message before the request goes out.
 """
 
 import json
-import os
-import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-sys.path.insert(0, os.path.abspath("../../../.."))
 
 import litellm
 from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler

@@ -2,12 +2,14 @@ model_list:
   - model_name: glm-5.3-flash
     litellm_params:
       model: hosted_vllm/glm-5.3-flash
-      api_base: http://127.0.0.1:8765/glm/v1
+      api_base: http://127.0.0.1:8765/v1
       api_key: fake
+
+litellm_settings:
+  callbacks: routing_recorder.proxy_handler_instance
 
 router_settings:
   num_retries: 0
 
 general_settings:
   master_key: sk-harness
-  forward_client_headers_to_llm_api: true

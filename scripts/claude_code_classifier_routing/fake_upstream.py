@@ -89,7 +89,8 @@ def record(upstream: Upstream, body: JsonObject, headers: Mapping[str, str], rep
     }
     with LOG_PATH.open("a") as log:
         log.write(json.dumps(entry) + "\n")
-    print(json.dumps(entry), flush=True)
+    sys.stdout.write(json.dumps(entry) + "\n")
+    sys.stdout.flush()
 
 
 def _tool_input(reply: ToolCall) -> str:
@@ -226,9 +227,12 @@ def report(log_path: Path) -> None:
         (row["request-class"], row["upstream"], row["model"], json.dumps(row["stop"]), row["max_tokens"])
         for row in rows
     )
-    print(f"{'count':>5}  {'request-class':<14} {'upstream':<8} {'model':<22} {'stop':<16} max_tokens")
-    for (request_class, upstream, model, stop, max_tokens), count in sorted(counts.items(), key=str):
-        print(f"{count:>5}  {request_class!s:<14} {upstream:<8} {model!s:<22} {stop:<16} {max_tokens}")
+    header: Final = f"{'count':>5}  {'request-class':<14} {'upstream':<8} {'model':<22} {'stop':<16} max_tokens"
+    lines: Final = (
+        f"{count:>5}  {request_class!s:<14} {upstream:<8} {model!s:<22} {stop:<16} {max_tokens}"
+        for (request_class, upstream, model, stop, max_tokens), count in sorted(counts.items(), key=str)
+    )
+    sys.stdout.write("\n".join((header, *lines)) + "\n")
 
 
 def main() -> None:

@@ -23,6 +23,7 @@ from litellm.litellm_core_utils.prompt_templates.common_utils import (
     is_encrypted_reasoning_block,
     merge_consecutive_system_messages,
     parse_tool_call_arguments,
+    merge_system_messages_to_front,
     responses_reasoning_items_from_thinking_blocks,
     salvage_concatenated_tool_arguments,
     split_concatenated_json_objects,
@@ -2263,3 +2264,34 @@ def test_get_semantic_cache_prompt_from_messages_matches_get_str_from_messages_w
     messages: list[dict[str, object]],
 ) -> None:
     assert get_semantic_cache_prompt_from_messages(messages) == get_str_from_messages(messages)
+
+
+def test_merge_system_messages_to_front_folds_every_system_message_in_order():
+    """Vertex AI MaaS rejects a request unless a single system message comes first."""
+    merged = merge_system_messages_to_front(
+        [
+            {"role": "user", "content": "hi"},
+            {
+                "role": "system",
+                "content": [
+                    {"type": "text", "text": "be terse"},
+                    {"type": "image_url", "image_url": {"url": "https://example.com/a.png"}},
+                ],
+            },
+            {"role": "assistant", "content": "ok"},
+            {"role": "system", "content": ""},
+            {"role": "system", "content": "answer in french"},
+        ]
+    )
+
+    assert merged == [
+        {"role": "system", "content": "be terse\n\nanswer in french"},
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "ok"},
+    ]
+
+
+def test_merge_system_messages_to_front_without_system_messages_is_a_no_op():
+    messages = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hey"}]
+
+    assert merge_system_messages_to_front(messages) == messages

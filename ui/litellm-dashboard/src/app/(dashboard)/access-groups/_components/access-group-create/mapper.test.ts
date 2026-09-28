@@ -21,6 +21,7 @@ describe("buildAccessGroupCreateBody", () => {
         name: "g",
         description: " engineering access ",
         modelIds: ["gpt-5.2"],
+        listedModelNames: ["gpt-5.2-mini"],
         mcpServerIds: ["srv-1", "srv-2"],
         agentIds: ["agent-1"],
       }),
@@ -28,6 +29,7 @@ describe("buildAccessGroupCreateBody", () => {
       access_group_name: "g",
       description: "engineering access",
       access_model_names: ["gpt-5.2"],
+      listed_model_names: ["gpt-5.2-mini"],
       access_mcp_server_ids: ["srv-1", "srv-2"],
       access_agent_ids: ["agent-1"],
     });

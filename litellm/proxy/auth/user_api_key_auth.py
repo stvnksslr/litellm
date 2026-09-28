@@ -86,6 +86,7 @@ from litellm.proxy.auth.auth_checks import (  # noqa: F401  # legacy module expo
     resolve_and_validate_end_user_id,
     resolve_default_end_user_budget,
     route_skips_budget_checks,
+    should_skip_budget_checks_for_model,
     stamp_matched_model_access_groups,
     team_member_max_budget_alert_check,
     virtual_key_max_budget_alert_check,
@@ -2417,23 +2418,13 @@ async def user_api_key_auth_builder(
                         and master_key is not None
                     )
                     if not falls_through_to_key_checks:
-                        # Check if model has zero cost - if so, skip all budget checks
-                        model = _get_model_from_request_context(
+                        skip_budget_checks = _should_skip_budget_checks(
                             request_data=request_data,
                             route=route,
                             request=request,
                             llm_router=llm_router,
-                            team_id=valid_token.team_id,
+                            valid_token=valid_token,
                         )
-                        skip_budget_checks = is_mcp_discovery_request(route=route, request_body=request_data)
-                        if not skip_budget_checks and model is not None and llm_router is not None:
-                            from litellm.proxy.auth.auth_checks import is_model_cost_zero
-
-                            skip_budget_checks = (  # rebind-ok: pre-existing rebinding on a rename-only line
-                                is_model_cost_zero(model=model, llm_router=llm_router)
-                            )
-                            if skip_budget_checks:
-                                verbose_proxy_logger.info("Skipping all budget checks for zero-cost model: %s", model)
 
                         # Fetch project object for JWT path if project_id is set
                         _jwt_project_obj = None
@@ -2913,23 +2904,14 @@ async def validate_resolved_virtual_key(  # noqa: C901  # Preserve ordering of e
                     f"User={valid_token.user_id} has been deactivated via SCIM. Keys owned by this user cannot be used."
                 )
 
-        # Check 2a. Check if model has zero cost - if so, skip all budget checks
-        model = _get_model_from_request_context(
+        # Check 2a. Skip budget checks for zero-cost or admin-exempted models
+        skip_budget_checks = _should_skip_budget_checks(
             request_data=request_data,
             route=route,
             request=request,
             llm_router=llm_router,
-            team_id=valid_token.team_id,
+            valid_token=valid_token,
         )
-        skip_budget_checks = is_mcp_discovery_request(route=route, request_body=request_data)
-        if not skip_budget_checks and model is not None and llm_router is not None:
-            from litellm.proxy.auth.auth_checks import is_model_cost_zero
-
-            skip_budget_checks = is_model_cost_zero(  # rebind-ok: pre-existing rebinding on a rename-only line
-                model=model, llm_router=llm_router
-            )
-            if skip_budget_checks:
-                verbose_proxy_logger.info("Skipping all budget checks for zero-cost model: %s", model)
 
         # Check 3. Check if user is in their team budget
         if not skip_budget_checks and valid_token.team_member_spend is not None:
@@ -3747,7 +3729,7 @@ async def run_centralized_common_checks(
         route=route,
         request=request,
         llm_router=llm_router,
-        team_id=user_api_key_auth_obj.team_id,
+        valid_token=user_api_key_auth_obj,
     )
     typed_team_object: Final[LiteLLM_TeamTable | None] = (
         team_object if isinstance(team_object, LiteLLM_TeamTable) else None
@@ -3966,8 +3948,9 @@ def _should_skip_budget_checks(
     route: str,
     request: Request | None,
     llm_router: litellm.Router | None,
-    team_id: str | None = None,
+    valid_token: UserAPIKeyAuth | None = None,
 ) -> bool:
+    team_id: Final = valid_token.team_id if valid_token is not None else None
     model: Final = _get_model_from_request_context(
         request_data=request_data,
         route=route,
@@ -3977,9 +3960,17 @@ def _should_skip_budget_checks(
     )
     if is_mcp_discovery_request(route=route, request_body=request_data):
         return True
-    if model is not None and llm_router is not None:
-        return is_model_cost_zero(model=model, llm_router=llm_router)
-    return False
+    request_fallbacks: Final = request_data.get("fallbacks")
+    skip_budget_checks: Final = should_skip_budget_checks_for_model(
+        model=model,
+        llm_router=llm_router,
+        team_id=team_id,
+        team_model_aliases=(valid_token.team_model_aliases if valid_token is not None else None),
+        request_fallbacks=(request_fallbacks if isinstance(request_fallbacks, list) else None),
+    )
+    if skip_budget_checks:
+        verbose_proxy_logger.info("Skipping all budget checks for budget-exempt model: %s", model)
+    return skip_budget_checks
 
 
 def _resolve_request_principal(request: Request, valid_token: UserAPIKeyAuth) -> Principal:
@@ -4601,10 +4592,12 @@ async def _run_post_custom_auth_checks(
     # spend some other model accrued. The JWT and virtual-key paths already skip
     # every budget check for these; this path did not, so the same request could
     # be refused under custom auth and served under the other two.
-    skip_budget_checks: Final = (
-        is_model_cost_zero(model=current_model, llm_router=llm_router)
-        if current_model is not None and llm_router is not None
-        else False
+    skip_budget_checks: Final = _should_skip_budget_checks(
+        request_data=request_data,
+        route=route,
+        request=request,
+        llm_router=llm_router,
+        valid_token=valid_token,
     )
 
     # 3. Check key-level model_max_budget

@@ -2,12 +2,16 @@
 ## API Handler for calling Vertex AI Partner Models
 from collections.abc import Callable
 from enum import Enum
-from typing import Final
+from typing import Final, cast
 
 import httpx
 
 import litellm
 from litellm import LlmProviders
+from litellm.litellm_core_utils.prompt_templates.common_utils import (
+    merge_system_messages_to_front,
+)
+from litellm.types.llms.openai import AllMessageValues
 from litellm.types.llms.vertex_ai import VertexPartnerProvider
 from litellm.utils import ModelResponse
 
@@ -223,7 +227,9 @@ class VertexAIPartnerModels(VertexBase):
                 return base_llm_http_handler.completion(
                     model=model,
                     stream=stream,
-                    messages=messages,
+                    messages=merge_system_messages_to_front(
+                        cast(list[AllMessageValues], messages)  # cast-ok: dispatch passes messages as a bare `list`
+                    ),
                     acompletion=acompletion,
                     api_base=api_base,
                     model_response=model_response,

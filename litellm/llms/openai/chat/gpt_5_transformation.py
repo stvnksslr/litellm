@@ -12,7 +12,7 @@ from litellm.utils import (
 
 from .gpt_transformation import OpenAIGPTConfig
 
-_GPT_SERIES_VERSION: Final = re.compile(r"^gpt-(\d+)(?:\.(\d+))?(?=[.-]|$)")
+_GPT_SERIES_VERSION: Final = re.compile(r"gpt-(\d+)(?:\.(\d+))?(?=[.-]|$)")
 
 
 def _catalogue_declares_default_effort() -> bool:
@@ -106,18 +106,16 @@ class OpenAIGPT5Config(OpenAIGPTConfig):
     @classmethod
     def is_model_gpt_5_2_model(cls, model: str) -> bool:
         """Check if the model is a gpt-5.2 variant (including pro)."""
-        model_name: Final = model.split("/")[-1]
-        return model_name.startswith("gpt-5.2") or model_name.startswith("gpt-5.4")
+        return cls._gpt_series_version(model) in ((5, 2), (5, 4))
 
     @classmethod
     def is_model_gpt_5_4_model(cls, model: str) -> bool:
         """Check if the model is a gpt-5.4 variant (including pro)."""
-        model_name: Final = model.split("/")[-1]
-        return model_name.startswith("gpt-5.4")
+        return cls._gpt_series_version(model) == (5, 4)
 
     @staticmethod
     def _gpt_series_version(model: str) -> tuple[int, int] | None:
-        match: Final = _GPT_SERIES_VERSION.match(model.split("/")[-1])
+        match: Final = _GPT_SERIES_VERSION.search(model.split("/")[-1])
         if match is None:
             return None
         return int(match.group(1)), int(match.group(2) or 0)

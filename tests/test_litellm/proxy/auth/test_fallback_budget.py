@@ -78,6 +78,15 @@ async def test_zero_cost_target_allowed_even_when_over_budget():
 
 
 @pytest.mark.asyncio
+async def test_budget_exempt_paid_target_allowed_even_when_over_budget():
+    exempt_model = {**PAID_MODEL, "model_name": "exempt-model", "model_info": {"id": "exempt-id", "skip_budget_checks": True}}
+    router = Router(model_list=[FREE_MODEL, PAID_MODEL, exempt_model])
+    token = _token(spend=100.0, max_budget=50.0)
+    assert await is_token_within_budget_for_model(model="exempt-model", valid_token=token, llm_router=router) is True
+    assert await is_token_within_budget_for_model(model="paid-model", valid_token=token, llm_router=router) is False
+
+
+@pytest.mark.asyncio
 async def test_no_budget_configured_is_always_within_budget():
     token = _token(spend=9999.0, user_spend=9999.0)
     assert await is_token_within_budget_for_model(model="paid-model", valid_token=token, llm_router=_router()) is True

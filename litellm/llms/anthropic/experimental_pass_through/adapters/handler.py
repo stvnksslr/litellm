@@ -11,6 +11,12 @@ from typing_extensions import TypedDict
 import litellm
 from litellm._logging import verbose_logger
 from litellm.litellm_core_utils.asyncify import run_async_function
+from litellm.llms.anthropic.experimental_pass_through.adapters.claude_code_classifier import (
+    glm_classifier_request_overrides,
+)
+from litellm.llms.anthropic.experimental_pass_through.adapters.model_garden_reasoning import (
+    default_reasoning_overrides,
+)
 from litellm.llms.anthropic.experimental_pass_through.adapters.transformation import (
     AnthropicAdapter,
 )
@@ -24,6 +30,7 @@ from litellm.llms.anthropic.experimental_pass_through.utils import (
     litellm_logging_obj_from_kwargs,
     local_model_name,
 )
+from litellm.types.llms.anthropic import is_anthropic_hosted_tool_type
 from litellm.types.llms.anthropic_messages.anthropic_response import (
     AnthropicMessagesResponse,
 )
@@ -544,6 +551,23 @@ class LiteLLMMessagesToCompletionTransformationHandler:
 
         completion_kwargs: Final[_CompletionKwargs] = {**openai_request}
 
+        forwardable_tools = [
+            tool for tool in completion_kwargs.get("tools") or [] if not is_anthropic_hosted_tool_type(tool.get("type"))
+        ]
+        if forwardable_tools:
+            completion_kwargs["tools"] = forwardable_tools
+        else:
+            completion_kwargs.pop("tools", None)
+            if tools:
+                # Anthropic server tools are dropped in two places - web_search
+                # becomes ``web_search_options`` during translation, everything
+                # else is stripped just above. A ``tool_choice`` naming one of
+                # them then dangles, and OpenAI-compatible backends reject the
+                # request with "tool_choice is only allowed when tools are
+                # specified".
+                completion_kwargs.pop("tool_choice", None)
+                completion_kwargs.pop("parallel_tool_calls", None)
+
         if stream:
             completion_kwargs["stream"] = stream
             completion_kwargs["stream_options"] = {
@@ -585,6 +609,12 @@ class LiteLLMMessagesToCompletionTransformationHandler:
         # Must run BEFORE _route_openai_thinking, which prepends "responses/"
         # to the model name and would break get_model_info() lookups.
         LiteLLMMessagesToCompletionTransformationHandler._normalize_reasoning_effort(completion_kwargs)
+        reasoning_overrides: Final = default_reasoning_overrides(completion_kwargs, extra_kwargs, thinking)
+        classifier_overrides: Final = glm_classifier_request_overrides(
+            {**completion_kwargs, **reasoning_overrides}, extra_kwargs
+        )
+        for key, value in {**reasoning_overrides, **classifier_overrides}.items():
+            completion_kwargs[key] = value
 
         LiteLLMMessagesToCompletionTransformationHandler._route_openai_thinking_to_responses_api_if_needed(
             completion_kwargs,

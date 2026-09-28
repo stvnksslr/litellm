@@ -30,6 +30,7 @@ const toFormValues = (accessGroup: AccessGroupResponse): AccessGroupFormValues =
   name: accessGroup.access_group_name,
   description: accessGroup.description ?? "",
   modelIds: accessGroup.access_model_names ?? [],
+  listedModelNames: accessGroup.listed_model_names ?? [],
   mcpServerIds: accessGroup.access_mcp_server_ids ?? [],
   agentIds: accessGroup.access_agent_ids ?? [],
 });
@@ -51,6 +52,7 @@ function AccessGroupEditForm({ accessGroup, onCancel, onSuccess }: Omit<AccessGr
         access_group_name: values.name,
         description: values.description,
         access_model_names: visitedTabs.has(MODELS_TAB) ? values.modelIds : undefined,
+        listed_model_names: visitedTabs.has(MODELS_TAB) ? values.listedModelNames : undefined,
         access_mcp_server_ids: visitedTabs.has(MCP_SERVERS_TAB) ? values.mcpServerIds : undefined,
         access_agent_ids: visitedTabs.has(AGENTS_TAB) ? values.agentIds : undefined,
       };

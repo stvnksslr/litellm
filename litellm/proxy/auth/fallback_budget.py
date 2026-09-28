@@ -40,6 +40,7 @@ from pydantic import ValidationError
 from litellm._logging import verbose_proxy_logger
 from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.auth.auth_checks import (  # noqa: F401  # legacy module exports
+    _is_model_budget_exempt,  # pyright: ignore[reportPrivateUsage]  # the admin budget exemption the auth-time checks honor; no public equivalent
     _is_model_cost_zero,  # pyright: ignore[reportPrivateUsage,reportUnusedImport]  # backwards-compatible package export
     is_model_cost_zero,  # pyright: ignore[reportPrivateUsage]  # the zero-cost predicate the auth-time budget checks use; no public equivalent
 )
@@ -110,7 +111,9 @@ async def is_token_within_budget_for_model(*, model: str, valid_token: UserAPIKe
     A zero-cost fallback target is always allowed: refusing it would deny a request on spend some
     other model accrued, which is the same reasoning behind the auth-time bypass.
     """
-    if is_model_cost_zero(model=model, llm_router=llm_router):
+    if is_model_cost_zero(model=model, llm_router=llm_router) or _is_model_budget_exempt(
+        model=model, llm_router=llm_router, team_id=valid_token.team_id
+    ):
         return True
 
     key_budget: Final = valid_token.max_budget

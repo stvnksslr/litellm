@@ -4169,6 +4169,19 @@ def pre_process_non_default_params(
         additional_endpoint_specific_params=["messages"],
     )
 
+    # vLLM and SGLang reject stream_options unless stream is True, and the pair gets
+    # separated by clients sending it on a non-streaming request and by the interception
+    # hooks (headroom, websearch, code interpreter) that convert a stream to one call.
+    # The Responses API bridge still forwards what its own normalizer accepts.
+    if passed_params.get("stream") is not True and "stream_options" in non_default_params:
+        from litellm.responses.utils import normalize_responses_api_stream_options
+
+        responses_stream_options: Final = normalize_responses_api_stream_options(
+            non_default_params.pop("stream_options")
+        )
+        if responses_stream_options is not None:
+            non_default_params["stream_options"] = responses_stream_options
+
     if "response_format" in non_default_params:
         if provider_config is not None:
             non_default_params["response_format"] = provider_config.get_json_schema_from_pydantic_object(
@@ -8427,6 +8440,12 @@ class ProviderConfigManager:
             return litellm.VertexAIMistralConfig()
         elif model in litellm.vertex_ai_ai21_models:
             return litellm.VertexAIAi21Config()
+        elif model.startswith("openai/"):
+            from litellm.llms.vertex_ai.vertex_model_garden.transformation import (
+                VertexAIModelGardenOpenAIConfig,
+            )
+
+            return VertexAIModelGardenOpenAIConfig()
         else:
             return litellm.VertexAILlama3Config()
 

@@ -159,6 +159,28 @@ class TestOpenAIGPT5ConfigIsModelGpt54PlusModel:
         ), f"Expected '{model}' NOT to be classified as gpt-5.4-or-newer"
 
 
+class TestOpenAIGPT5ConfigCustomDeploymentNames:
+    """Regression guard for https://github.com/BerriAI/litellm/issues/33221 follow-up.
+
+    Azure deployments are often named with an org prefix (e.g.
+    ``pb-ai-enablement-dev-gpt-5.6-luna-2026-07-09``) rather than the bare model
+    name. Version detection must find ``gpt-5.<minor>`` anywhere in the string,
+    matching the substring convention already used by ``is_model_gpt_5_model``,
+    not just at the start.
+    """
+
+    def test_custom_azure_deployment_name_detected_as_5_4_plus(self):
+        model = "pb-ai-enablement-dev-gpt-5.6-luna-2026-07-09"
+        assert OpenAIGPT5Config.is_model_gpt_5_model(model)
+        assert OpenAIGPT5Config.is_model_gpt_5_4_plus_model(model)
+
+    def test_custom_azure_deployment_name_with_provider_prefix(self):
+        assert OpenAIGPT5Config.is_model_gpt_5_4_plus_model("azure/pb-ai-enablement-dev-gpt-5.6-luna-2026-07-09")
+
+    def test_custom_deployment_name_pre_5_4_not_bridged(self):
+        assert not OpenAIGPT5Config.is_model_gpt_5_4_plus_model("my-org-gpt-5.3-deployment")
+
+
 # ---------------------------------------------------------------------------
 # AzureOpenAIGPT5Config
 # ---------------------------------------------------------------------------

@@ -17,11 +17,15 @@ Vertex Documentation for using the OpenAI /chat/completions endpoint: https://gi
 """
 
 from collections.abc import Callable
-from typing import Final
+from typing import Final, cast
 
 import httpx
 
+from litellm.litellm_core_utils.prompt_templates.common_utils import (
+    merge_system_messages_to_front,
+)
 from litellm.llms.vertex_ai.common_utils import get_vertex_base_url
+from litellm.types.llms.openai import AllMessageValues
 from litellm.utils import ModelResponse
 
 from ..common_utils import VertexAIError, get_vertex_base_model_name
@@ -128,7 +132,9 @@ class VertexAIModelGardenModels(VertexBase):
                 model = ""
             return openai_like_chat_completions.completion(
                 model=model,
-                messages=messages,
+                messages=merge_system_messages_to_front(
+                    cast(list[AllMessageValues], messages)  # cast-ok: dispatch passes messages as a bare `list`
+                ),
                 api_base=api_base,
                 api_key=access_token,
                 custom_prompt_dict=custom_prompt_dict,

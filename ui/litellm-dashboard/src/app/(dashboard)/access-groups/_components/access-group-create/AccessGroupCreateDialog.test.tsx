@@ -87,7 +87,9 @@ describe("AccessGroupCreateDialog", () => {
     await user.type(screen.getByLabelText("Group Name"), "prod-models");
     await user.type(screen.getByLabelText("Description"), "engineering access");
     await user.click(screen.getByRole("tab", { name: "Models" }));
-    await user.click(screen.getByRole("button", { name: "set-models" }));
+    const [setAllowedModels, setListedModels] = screen.getAllByRole("button", { name: "set-models" });
+    await user.click(setAllowedModels);
+    await user.click(setListedModels);
     await user.click(screen.getByRole("button", { name: "Create Group" }));
 
     await waitFor(() => expect(createAccessGroup).toHaveBeenCalledTimes(1));
@@ -95,6 +97,7 @@ describe("AccessGroupCreateDialog", () => {
       access_group_name: "prod-models",
       description: "engineering access",
       access_model_names: ["gpt-5.2"],
+      listed_model_names: ["gpt-5.2"],
     });
   });
 

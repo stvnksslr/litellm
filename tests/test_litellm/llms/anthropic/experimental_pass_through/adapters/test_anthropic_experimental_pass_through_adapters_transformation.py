@@ -1119,6 +1119,59 @@ def test_translate_openai_content_to_anthropic_empty_function_arguments():
     assert "provider_specific_fields" not in result[0]
 
 
+def _tool_call_response(arguments: str, finish_reason: str = "tool_calls") -> ModelResponse:
+    return ModelResponse(
+        id="chatcmpl-truncated",
+        choices=[
+            Choices(
+                finish_reason=finish_reason,
+                index=0,
+                message=Message(
+                    role="assistant",
+                    content=None,
+                    tool_calls=[
+                        ChatCompletionAssistantToolCall(
+                            id="call_truncated",
+                            type="function",
+                            function=Function(name="get_weather", arguments=arguments),
+                        )
+                    ],
+                ),
+            )
+        ],
+        model="gpt-5.6-luna",
+        usage=Usage(prompt_tokens=46, completion_tokens=16, total_tokens=62),
+    )
+
+
+def test_translate_openai_response_to_anthropic_drops_truncated_tool_call():
+    """A tool call cut off mid-arguments must degrade to stop_reason=max_tokens, not raise.
+
+    Providers report a truncated tool call as finish_reason="tool_calls" with an
+    unterminated arguments string, so the truncation is only detectable by the
+    arguments failing to parse. Emitting stop_reason="tool_use" with no tool_use
+    block would leave clients waiting for a call that never arrives.
+    """
+    adapter = LiteLLMAnthropicMessagesAdapter()
+
+    result = adapter.translate_openai_response_to_anthropic(response=_tool_call_response('{"city":"Os'))
+
+    assert result["stop_reason"] == "max_tokens"
+    assert [block for block in result["content"] if block["type"] == "tool_use"] == []
+
+
+def test_translate_openai_response_to_anthropic_keeps_intact_tool_call():
+    """The truncation path must not fire for a well-formed tool call."""
+    adapter = LiteLLMAnthropicMessagesAdapter()
+
+    result = adapter.translate_openai_response_to_anthropic(response=_tool_call_response('{"city":"Oslo"}'))
+
+    tool_uses = [block for block in result["content"] if block["type"] == "tool_use"]
+    assert result["stop_reason"] == "tool_use"
+    assert len(tool_uses) == 1
+    assert tool_uses[0]["input"] == {"city": "Oslo"}
+
+
 def test_translate_openai_content_to_anthropic_text_and_tool_calls():
     """Ensure content blocks contain both the assistant text + tool call data."""
     openai_choices = [
@@ -4550,36 +4603,67 @@ def _tool_reference_block(tool_name="WebFetch"):
     return {"type": "tool_reference", "tool_name": tool_name}
 
 
-def test_tool_result_tool_reference_is_carried_through_untouched():
+def _catalog(*names):
+    return {
+        name: {"type": "function", "function": {"name": name, "description": f"{name} tool", "parameters": {"type": "object"}}}
+        for name in names
+    }
+
+
+def _expansion(*names):
+    lines = "\n".join(
+        f'<function>{{"description": "{name} tool", "name": "{name}", "parameters": {{"type": "object"}}}}</function>'
+        for name in names
+    )
+    return f"<functions>\n{lines}\n</functions>"
+
+
+def test_tool_result_tool_reference_expands_into_the_functions_block_the_tool_promises():
     adapter = LiteLLMAnthropicMessagesAdapter()
 
     result = adapter.translate_anthropic_messages_to_openai(
         messages=[
             _anthropic_tool_use_turn("toolu_01"),
             _anthropic_tool_result_turn({"toolu_01": [_tool_reference_block()]}),
-        ]
+        ],
+        tool_catalog=_catalog("WebFetch"),
     )
 
     assert [m["role"] for m in result] == ["assistant", "tool"]
     assert result[1]["tool_call_id"] == "toolu_01"
-    assert result[1]["content"] == [{"type": "tool_reference", "tool_name": "WebFetch"}]
+    assert result[1]["content"] == _expansion("WebFetch")
 
 
-def test_tool_result_text_beside_tool_reference_keeps_both_parts_in_order():
+def test_tool_result_tool_reference_without_a_catalog_entry_leaves_no_reference_part_behind():
+    adapter = LiteLLMAnthropicMessagesAdapter()
+
+    result = adapter.translate_anthropic_messages_to_openai(
+        messages=[
+            _anthropic_tool_use_turn("toolu_01"),
+            _anthropic_tool_result_turn({"toolu_01": [_tool_reference_block()]}),
+        ],
+        tool_catalog={},
+    )
+
+    assert result[1]["content"] == ""
+
+
+def test_tool_result_text_beside_tool_references_puts_one_expansion_first():
     adapter = LiteLLMAnthropicMessagesAdapter()
 
     result = adapter.translate_anthropic_messages_to_openai(
         messages=[
             _anthropic_tool_use_turn("toolu_01"),
             _anthropic_tool_result_turn(
-                {"toolu_01": [{"type": "text", "text": "loaded"}, _tool_reference_block("Grep")]}
+                {"toolu_01": [{"type": "text", "text": "loaded"}, _tool_reference_block("Grep"), _tool_reference_block("Glob")]}
             ),
-        ]
+        ],
+        tool_catalog=_catalog("Grep", "Glob"),
     )
 
     assert result[1]["content"] == [
+        {"type": "text", "text": _expansion("Grep", "Glob")},
         {"type": "text", "text": "loaded"},
-        {"type": "tool_reference", "tool_name": "Grep"},
     ]
 
 
@@ -5138,3 +5222,67 @@ def test_eager_input_streaming_tool_reaches_bedrock_converse_as_beta():
 
     assert data["additionalModelRequestFields"]["anthropic_beta"] == ["fine-grained-tool-streaming-2025-05-14"]
     assert data["toolConfig"]["tools"][0]["toolSpec"]["inputSchema"]["json"] == EAGER_INPUT_SCHEMA
+
+
+@pytest.mark.parametrize(
+    "anthropic_only_param",
+    [
+        {"defer_loading": True},
+        {"allowed_callers": ["some_tool"]},
+        {"input_examples": [{"location": "SF"}]},
+    ],
+)
+def test_translate_anthropic_tools_to_openai_keeps_anthropic_only_params_out_of_schema(anthropic_only_param):
+    """Same failure mode as #30557: Anthropic tool-level metadata must not be merged
+    into the OpenAI function `parameters`, which is a JSON Schema.
+
+    Claude Code sends `defer_loading` on every tool once tool search is enabled, so
+    this leaked a stray key into the schema of every tool on every request.
+    """
+    adapter = LiteLLMAnthropicMessagesAdapter()
+    input_schema = {
+        "type": "object",
+        "properties": {"location": {"type": "string"}},
+        "required": ["location"],
+    }
+    tools = [
+        {
+            "type": "custom",
+            "name": "get_weather",
+            "description": "Get weather",
+            "input_schema": input_schema,
+            **anthropic_only_param,
+        }
+    ]
+
+    new_tools, _ = adapter.translate_anthropic_tools_to_openai(tools=tools)
+
+    assert new_tools[0]["function"]["parameters"] == input_schema
+    leaked_key = next(iter(anthropic_only_param))
+    assert leaked_key not in new_tools[0]["function"]["parameters"]
+
+
+def test_translate_anthropic_tools_to_openai_still_forwards_computer_tool_kwargs():
+    """Guard against over-correcting the fix above.
+
+    Computer tools carry their sizing as tool-level keys, and the reverse mapping
+    in AnthropicConfig._map_tools reads them back out of function.parameters, so
+    they must keep flowing into the schema dict.
+    """
+    adapter = LiteLLMAnthropicMessagesAdapter()
+    tools = [
+        {
+            "type": "computer_20250124",
+            "name": "computer",
+            "display_width_px": 1024,
+            "display_height_px": 768,
+            "display_number": 1,
+        }
+    ]
+
+    new_tools, _ = adapter.translate_anthropic_tools_to_openai(tools=tools)
+
+    params = new_tools[0]["function"]["parameters"]
+    assert params["display_width_px"] == 1024
+    assert params["display_height_px"] == 768
+    assert params["display_number"] == 1

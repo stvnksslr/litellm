@@ -23324,6 +23324,8 @@ export interface components {
             assigned_team_ids?: string[] | null;
             /** Description */
             description?: string | null;
+            /** Listed Model Names */
+            listed_model_names?: string[] | null;
         };
         /** AccessGroupInfo */
         AccessGroupInfo: {
@@ -23380,6 +23382,8 @@ export interface components {
             created_by?: string | null;
             /** Description */
             description?: string | null;
+            /** Listed Model Names */
+            listed_model_names: string[];
             /**
              * Updated At
              * Format: date-time
@@ -23404,6 +23408,8 @@ export interface components {
             assigned_team_ids?: string[] | null;
             /** Description */
             description?: string | null;
+            /** Listed Model Names */
+            listed_model_names?: string[] | null;
         };
         /**
          * ActiveUsersAnalyticsResponse

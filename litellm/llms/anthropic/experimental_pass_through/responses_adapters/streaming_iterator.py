@@ -12,15 +12,23 @@ from litellm._uuid import uuid
 from litellm.litellm_core_utils.prompt_templates.common_utils import (
     encrypted_reasoning_signature,
 )
+from litellm.llms.anthropic.common_utils import (
+    AnthropicWebSearchResult,
+    build_anthropic_web_search_tool_result_block,
+    web_search_result_from_source,
+)
 from litellm.llms.anthropic.experimental_pass_through.messages.utils import (
     refusal_stop_details,
     responses_output_refusal_text,
 )
+from litellm.types.llms.anthropic import ANTHROPIC_HOSTED_TOOLS, AnthropicResponseContentBlockServerToolUse
 from litellm.types.llms.anthropic_messages.anthropic_response import AnthropicUsage
 
 from .transformation import (
     REASONING_SUMMARY_PART_SEPARATOR,
     LiteLLMAnthropicToResponsesAPIAdapter,
+    as_responses_item_mapping,
+    web_search_call_query,
 )
 
 if TYPE_CHECKING:
@@ -58,6 +66,10 @@ class AnthropicResponsesStreamWrapper:
         self._item_id_to_block_index: dict[str, int] = {}
         # Track open function_call items by item_id so we can emit tool_use start
         self._pending_tool_ids: dict[str, str] = {}  # item_id -> call_id / name accumulator
+        # The Responses API reports search sources as annotations on the answer text, so the
+        # web_search_tool_result paired with the last search can only be emitted at the end.
+        self._web_search_block_id: str | None = None
+        self._web_search_results: tuple[AnthropicWebSearchResult, ...] = ()
         self._sent_message_start = False
         self._sent_message_stop = False
         self._chunk_queue: deque[dict[str, object]] = deque()
@@ -104,6 +116,58 @@ class AnthropicResponsesStreamWrapper:
     @staticmethod
     def _field(source: object, name: str) -> object:
         return source.get(name) if isinstance(source, dict) else getattr(source, name, None)
+
+    def _record_web_search_result(self, source: object) -> None:
+        result: Final = web_search_result_from_source(as_responses_item_mapping(source))
+        if result is not None and all(seen.url != result.url for seen in self._web_search_results):
+            self._web_search_results += (result,)
+
+    def _queue_web_search_call(self, item: object) -> None:
+        """Emit the whole server_tool_use block once a hosted search completes.
+
+        ``response.output_item.added`` carries only ``{"id", "type", "status"}`` for a
+        web_search_call, so the query, and whether this was a search at all rather than a
+        page fetch, is known only on ``done``. Anthropic opens server_tool_use with an empty
+        input and streams it as input_json_delta, so the input is not also set on the start.
+        """
+        sources: Final = self._field(self._field(item, "action"), "sources")
+        for source in sources if isinstance(sources, list) else ():
+            self._record_web_search_result(source)
+        query: Final = web_search_call_query(as_responses_item_mapping(item))
+        if query is None:
+            return
+        search_id: Final = str(self._field(item, "id") or f"srvtoolu_{uuid.uuid4()}")
+        block_idx: Final = self._next_block_index()
+        self._web_search_block_id = search_id
+        server_tool_use: Final = AnthropicResponseContentBlockServerToolUse(
+            id=search_id, name=ANTHROPIC_HOSTED_TOOLS.WEB_SEARCH.value
+        ).model_dump()
+        self._chunk_queue.extend(
+            (
+                {"type": "content_block_start", "index": block_idx, "content_block": server_tool_use},
+                {
+                    "type": "content_block_delta",
+                    "index": block_idx,
+                    "delta": {"type": "input_json_delta", "partial_json": json.dumps({"query": query})},
+                },
+                {"type": "content_block_stop", "index": block_idx},
+            )
+        )
+
+    def _queue_web_search_tool_result_block(self) -> None:
+        if self._web_search_block_id is None:
+            return
+        block_idx: Final = self._next_block_index()
+        result_block: Final = build_anthropic_web_search_tool_result_block(
+            tool_use_id=self._web_search_block_id, results=self._web_search_results
+        )
+        self._chunk_queue.extend(
+            (
+                {"type": "content_block_start", "index": block_idx, "content_block": dict(result_block)},
+                {"type": "content_block_stop", "index": block_idx},
+            )
+        )
+        self._web_search_block_id = None
 
     def _close_reasoning_item(self, item: object, item_id: str | None) -> None:
         block_idx: Final = self._item_id_to_block_index.get(item_id, -1) if item_id else self._current_block_index
@@ -175,6 +239,10 @@ class AnthropicResponsesStreamWrapper:
                         "input": {},
                     },
                 )
+            return
+
+        if event_type == "response.output_text.annotation.added":
+            self._record_web_search_result(self._field(event, "annotation"))
             return
 
         if event_type == "response.refusal.delta":
@@ -282,6 +350,9 @@ class AnthropicResponsesStreamWrapper:
             if self._field(item, "type") == "reasoning":
                 self._close_reasoning_item(item, item_id)
                 return
+            if self._field(item, "type") == "web_search_call":
+                self._queue_web_search_call(item)
+                return
             block_idx = self._item_id_to_block_index.get(item_id, -1) if item_id else self._current_block_index
             if block_idx < 0:
                 return
@@ -338,6 +409,7 @@ class AnthropicResponsesStreamWrapper:
                     else {}  # mutable-ok: empty spread placeholder for non-refusal stop
                 ),
             }
+            self._queue_web_search_tool_result_block()
 
             self._chunk_queue.append(
                 {

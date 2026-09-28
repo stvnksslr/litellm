@@ -189,6 +189,14 @@ export const AccessGroupCreateDialog = ({
               <FormField control={form.control} name="modelIds" label="Allowed Models">
                 {(field) => <ModelSelect context="global" value={field.value} onChange={field.onChange} />}
               </FormField>
+              <FormField
+                control={form.control}
+                name="listedModelNames"
+                label="Models shown in /v1/models"
+                description="Leave empty to list all allowed models. This does not change access."
+              >
+                {(field) => <ModelSelect context="global" value={field.value} onChange={field.onChange} />}
+              </FormField>
             </TabsContent>
 
             <TabsContent value="mcp-servers" className="pt-4">

@@ -42,6 +42,7 @@ const mockAccessGroups: AccessGroupResponse[] = [
     access_group_name: "Group One",
     description: "First group",
     access_model_names: [],
+    listed_model_names: [],
     access_mcp_server_ids: [],
     access_agent_ids: [],
     assigned_team_ids: [],

@@ -9104,3 +9104,53 @@ async def test_team_member_budget_check_adds_temp_increase_to_live_team_default(
                 proxy_logging_obj=ProxyLogging(user_api_key_cache=None),
             )
     assert exc_info.value.max_budget == expected_cap
+
+
+@pytest.mark.asyncio
+async def test_get_listed_models_from_access_groups_uses_listed_field():
+    """When listed_model_names is set, the listing resolver returns only those models."""
+    from litellm.proxy.auth.auth_checks import _get_listed_models_from_access_groups
+    from litellm.models.access_group import LiteLLM_AccessGroupTable
+
+    ag = LiteLLM_AccessGroupTable(
+        access_group_id="ag-1",
+        access_group_name="g1",
+        access_model_names=["gpt-4o", "claude-3"],
+        listed_model_names=["gpt-4o"],
+    )
+
+    mock_cache = MagicMock()
+    mock_cache.async_get_cache = AsyncMock(return_value=ag)
+
+    result = await _get_listed_models_from_access_groups(
+        access_group_ids=["ag-1"],
+        prisma_client=MagicMock(),
+        user_api_key_cache=mock_cache,
+        proxy_logging_obj=MagicMock(),
+    )
+    assert result == ["gpt-4o"]
+
+
+@pytest.mark.asyncio
+async def test_get_listed_models_falls_back_to_access_model_names():
+    """When listed_model_names is empty, the listing resolver falls back to access_model_names."""
+    from litellm.proxy.auth.auth_checks import _get_listed_models_from_access_groups
+    from litellm.models.access_group import LiteLLM_AccessGroupTable
+
+    ag = LiteLLM_AccessGroupTable(
+        access_group_id="ag-1",
+        access_group_name="g1",
+        access_model_names=["gpt-4o", "claude-3"],
+        listed_model_names=[],
+    )
+
+    mock_cache = MagicMock()
+    mock_cache.async_get_cache = AsyncMock(return_value=ag)
+
+    result = await _get_listed_models_from_access_groups(
+        access_group_ids=["ag-1"],
+        prisma_client=MagicMock(),
+        user_api_key_cache=mock_cache,
+        proxy_logging_obj=MagicMock(),
+    )
+    assert result == ["gpt-4o", "claude-3"]

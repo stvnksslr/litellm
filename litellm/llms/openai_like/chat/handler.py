@@ -17,8 +17,10 @@ from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLogging
 from litellm.llms.base_llm.base_model_iterator import MockResponseIterator
 from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler, HTTPHandler
 from litellm.llms.custom_httpx.sse_lines import aiter_sse_lines, iter_sse_lines
-from litellm.llms.databricks.streaming_utils import ModelResponseIterator
-from litellm.llms.openai.chat.gpt_transformation import OpenAIGPTConfig
+from litellm.llms.openai.chat.gpt_transformation import (
+    OpenAIChatCompletionStreamingHandler,
+    OpenAIGPTConfig,
+)
 from litellm.llms.openai.openai import OpenAIConfig
 from litellm.types.utils import CustomStreamingDecoder, ModelResponse
 from litellm.utils import CustomStreamWrapper, ProviderConfigManager
@@ -66,7 +68,7 @@ async def make_call(
         model_response: Final = _fake_streamed_model_response(response.json())
         completion_stream = MockResponseIterator(model_response=model_response)
     else:
-        completion_stream = ModelResponseIterator(
+        completion_stream = OpenAIChatCompletionStreamingHandler(
             streaming_response=aiter_sse_lines(response.aiter_text()), sync_stream=False
         )
     # LOGGING
@@ -106,7 +108,7 @@ def make_sync_call(
         model_response: Final = _fake_streamed_model_response(response.json())
         completion_stream = MockResponseIterator(model_response=model_response)
     else:
-        completion_stream = ModelResponseIterator(
+        completion_stream = OpenAIChatCompletionStreamingHandler(
             streaming_response=iter_sse_lines(response.iter_text()), sync_stream=True
         )
 

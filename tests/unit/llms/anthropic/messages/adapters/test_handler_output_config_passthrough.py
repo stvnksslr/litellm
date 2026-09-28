@@ -62,13 +62,13 @@ def _call_prepare(extra_kwargs, model="gpt-4o", output_format=None, **overrides)
         messages=overrides.get("messages", MESSAGES),
         model=model,
         metadata=None,
-        stop_sequences=None,
+        stop_sequences=overrides.get("stop_sequences"),
         stream=False,
         system=None,
         temperature=None,
-        thinking=None,
-        tool_choice=None,
-        tools=None,
+        thinking=overrides.get("thinking"),
+        tool_choice=overrides.get("tool_choice"),
+        tools=overrides.get("tools"),
         top_k=None,
         top_p=None,
         output_format=output_format,
@@ -218,6 +218,109 @@ class TestOutputConfigStrippedFromCompletionKwargs:
         assert completion_kwargs.get("user") == "end-user-123"
 
 
+class TestQwenGlmThinkingDisable:
+    def test_qwen_deployment_disables_native_thinking_and_preserves_extra_body(self):
+        result = _call_prepare(
+            extra_kwargs={
+                "custom_llm_provider": "vertex_ai",
+                "model_info": {"base_model": "vertex_ai/qwen3-6"},
+                "extra_body": {
+                    "chat_template_kwargs": {"some_option": "keep"},
+                    "other_option": "keep",
+                },
+            },
+            model="claude-haiku-unlimited",
+            max_tokens=8,
+        )
+        completion_kwargs = result[0] if isinstance(result, tuple) else result
+
+        assert completion_kwargs["extra_body"] == {
+            "chat_template_kwargs": {"some_option": "keep", "enable_thinking": False},
+            "other_option": "keep",
+        }
+
+    def test_glm_deployment_is_left_alone(self) -> None:
+        result = _call_prepare(
+            extra_kwargs={
+                "custom_llm_provider": "hosted_vllm",
+                "model_info": {"base_model": "hosted_vllm/glm-5_2-fp8"},
+            },
+            model="claude-sonnet-unlimited",
+            max_tokens=8,
+        )
+        completion_kwargs = result[0] if isinstance(result, tuple) else result
+
+        assert "extra_body" not in completion_kwargs
+
+    def test_vertex_glm_5_3_flash_never_receives_a_thinking_kwarg(self) -> None:
+        result = _call_prepare(
+            extra_kwargs={
+                "custom_llm_provider": "vertex_ai",
+                "litellm_params": {"model": "vertex_ai/openai/glm-5-3-flash"},
+                "extra_body": {"chat_template_kwargs": {"some_option": "keep"}},
+            },
+            model="glm-5-3-flash",
+            max_tokens=8,
+        )
+        completion_kwargs = result[0] if isinstance(result, tuple) else result
+
+        assert completion_kwargs["extra_body"] == {"chat_template_kwargs": {"some_option": "keep"}}
+
+    def test_vertex_qwen3_8_deployment_matched_by_litellm_params(self) -> None:
+        result = _call_prepare(
+            extra_kwargs={
+                "custom_llm_provider": "vertex_ai",
+                "litellm_params": {"model": "vertex_ai/openai/qwen_qwen3_8-27b-fp8"},
+            },
+            model="claude-haiku-unlimited",
+            max_tokens=8,
+        )
+        completion_kwargs = result[0] if isinstance(result, tuple) else result
+
+        assert completion_kwargs["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
+
+    def test_explicit_disabled_thinking_uses_native_disable_flag(self):
+        result = _call_prepare(
+            extra_kwargs={
+                "custom_llm_provider": "hosted_vllm",
+                "model_info": {"base_model": "hosted_vllm/qwen3-8"},
+            },
+            model="claude-sonnet-unlimited",
+            thinking={"type": "disabled"},
+            max_tokens=8,
+        )
+        completion_kwargs = result[0] if isinstance(result, tuple) else result
+
+        assert "reasoning_effort" not in completion_kwargs
+        assert completion_kwargs["extra_body"]["chat_template_kwargs"]["enable_thinking"] is False
+
+    def test_enabled_thinking_is_not_disabled(self):
+        result = _call_prepare(
+            extra_kwargs={
+                "custom_llm_provider": "hosted_vllm",
+                "model_info": {"base_model": "hosted_vllm/qwen3-8"},
+            },
+            model="claude-sonnet-unlimited",
+            thinking={"type": "enabled", "budget_tokens": 1024},
+        )
+        completion_kwargs = result[0] if isinstance(result, tuple) else result
+
+        assert "extra_body" not in completion_kwargs
+
+    def test_azure_deployment_does_not_receive_native_thinking_flag(self):
+        result = _call_prepare(
+            extra_kwargs={
+                "custom_llm_provider": "azure",
+                "model_info": {"base_model": "azure/gpt-5.6-luna"},
+            },
+            model="claude-sonnet-unlimited",
+            max_tokens=8,
+        )
+        completion_kwargs = result[0] if isinstance(result, tuple) else result
+
+        assert "extra_body" not in completion_kwargs
+
+
 class TestEmptyExtraKwargsPath:
     """Greptile P2 on PR #22727: ``extra_kwargs or {default}`` substitutes a
     default for an explicitly-passed empty dict, hiding the no-extra-kwargs
@@ -263,3 +366,196 @@ async def test_messages_layer_converted_stream_flag_still_gets_a_message_back(co
     )
 
     assert response["content"][0]["text"] == "hi"
+
+
+_DEEPWIKI_SERVER: Final = {"type": "url", "url": "https://mcp.deepwiki.com/mcp", "name": "deepwiki"}
+
+
+@pytest.mark.parametrize(
+    ("mcp_servers", "named"),
+    [
+        ([_DEEPWIKI_SERVER], "`deepwiki`"),
+        ([_DEEPWIKI_SERVER, {"type": "url", "url": "https://mcp.example.com/mcp"}], "`deepwiki`, `unnamed`"),
+        ({"name": "deepwiki"}, "`unnamed`"),
+    ],
+    ids=["named", "one-unnamed", "not-a-list"],
+)
+def test_mcp_servers_a_chat_route_cannot_run_answer_400_naming_each_server(
+    monkeypatch: pytest.MonkeyPatch, mcp_servers: object, named: str
+) -> None:
+    monkeypatch.setattr(litellm, "drop_params", False)
+    with pytest.raises(litellm.UnsupportedParamsError) as raised:
+        _call_prepare(
+            extra_kwargs={"mcp_servers": mcp_servers, "custom_llm_provider": "gemini"}, model="gemini-3.8-flash"
+        )
+
+    assert raised.value.status_code == 400
+    assert f"to gemini-3.8-flash on gemini, so the MCP server {named} would not run" in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    ("route", "forwards"),
+    [("litellm_proxy", True), ("hosted_vllm", True), ("bedrock", False), ("vertex_ai", False)],
+)
+def test_mcp_servers_reach_routes_that_carry_them_and_answer_400_elsewhere(
+    monkeypatch: pytest.MonkeyPatch, route: str, forwards: bool
+) -> None:
+    monkeypatch.setattr(litellm, "drop_params", False)
+    extra_kwargs: Final = {"mcp_servers": [_DEEPWIKI_SERVER], "custom_llm_provider": route}
+    if not forwards:
+        with pytest.raises(litellm.UnsupportedParamsError, match=f"on {route}, so the MCP server `deepwiki`"):
+            _call_prepare(extra_kwargs=extra_kwargs, model="some-model")
+        return
+
+    completion_kwargs, _ = _call_prepare(extra_kwargs=extra_kwargs, model="some-model")
+
+    assert completion_kwargs["mcp_servers"] == [_DEEPWIKI_SERVER]
+
+
+_DEEPWIKI_TOOLSET: Final = {"type": "mcp_toolset", "mcp_server_name": "deepwiki"}
+_WEATHER_TOOL: Final = {
+    "name": "get_weather",
+    "description": "Get the weather for a city",
+    "input_schema": {"type": "object", "properties": {"city": {"type": "string"}}},
+}
+
+
+@pytest.mark.parametrize(
+    ("tools", "kept_tool_names"),
+    [([_DEEPWIKI_TOOLSET, _WEATHER_TOOL], ["get_weather"]), ([_DEEPWIKI_TOOLSET], None)],
+    ids=["with-function", "toolset-only"],
+)
+def test_drop_params_drops_the_mcp_toolset_tools_of_dropped_mcp_servers(
+    monkeypatch: pytest.MonkeyPatch, tools: list[dict[str, object]], kept_tool_names: list[str] | None
+) -> None:
+    monkeypatch.setattr(litellm, "drop_params", True)
+    completion_kwargs, _ = _call_prepare(
+        extra_kwargs={"mcp_servers": [_DEEPWIKI_SERVER], "custom_llm_provider": "gemini"},
+        model="gemini-3.8-flash",
+        tools=tools,
+        tool_choice={"type": "auto"},
+    )
+
+    sent_tools: Final = completion_kwargs.get("tools")
+    sent_names: Final = [tool["function"]["name"] for tool in sent_tools] if sent_tools else None
+    assert sent_names == kept_tool_names
+    assert ("tool_choice" in completion_kwargs) == bool(kept_tool_names)
+
+
+_DROP_FORMS: Final[Mapping[str, Mapping[str, object]]] = {
+    "request": {"drop_params": True},
+    "global": {},
+    "additional_drop_params": {"additional_drop_params": ["mcp_servers"]},
+}
+
+
+@pytest.mark.parametrize("drop_params", list(_DROP_FORMS))
+def test_drop_params_drops_mcp_servers_instead_of_forwarding_them(
+    monkeypatch: pytest.MonkeyPatch, drop_params: str
+) -> None:
+    monkeypatch.setattr(litellm, "drop_params", drop_params == "global")
+    completion_kwargs, _ = _call_prepare(
+        extra_kwargs={
+            "mcp_servers": [_DEEPWIKI_SERVER],
+            "custom_llm_provider": "gemini",
+            **_DROP_FORMS[drop_params],
+        },
+        model="gemini-3.8-flash",
+    )
+
+    assert "mcp_servers" not in completion_kwargs
+    assert completion_kwargs["messages"] == MESSAGES
+
+
+@pytest.mark.parametrize("mcp_servers", [None, []], ids=["absent", "empty"])
+def test_no_mcp_servers_needs_no_drop_params(monkeypatch: pytest.MonkeyPatch, mcp_servers: object) -> None:
+    monkeypatch.setattr(litellm, "drop_params", False)
+    completion_kwargs, _ = _call_prepare(
+        extra_kwargs={"mcp_servers": mcp_servers, "custom_llm_provider": "gemini"}, model="gemini-3.8-flash"
+    )
+
+    assert "mcp_servers" not in completion_kwargs
+
+
+class TestGlmClassifierMaxTokensFloor:
+    def test_live_router_shape_stop_block_2112_raised_to_4096(self) -> None:
+        result = _call_prepare(
+            extra_kwargs={"custom_llm_provider": "vertex_ai"},
+            model="vertex_ai/openai/glm-5_3-flash",
+            max_tokens=2112,
+            stop_sequences=["</block>"],
+        )
+        completion_kwargs = result[0] if isinstance(result, tuple) else result
+
+        assert completion_kwargs["max_tokens"] == 4096
+        assert completion_kwargs["stop"] == ["</block>"]
+        assert "stop_sequences" not in completion_kwargs
+        assert completion_kwargs["reasoning_effort"] == "low"
+        assert "extra_body" not in completion_kwargs
+
+    def test_base_model_glm_stop_block_1024_raised_to_4096(self) -> None:
+        result = _call_prepare(
+            extra_kwargs={
+                "custom_llm_provider": "hosted_vllm",
+                "model_info": {"base_model": "hosted_vllm/glm-5_2-fp8"},
+            },
+            model="claude-sonnet-unlimited",
+            max_tokens=1024,
+            stop_sequences=["</block>"],
+        )
+        completion_kwargs = result[0] if isinstance(result, tuple) else result
+
+        assert completion_kwargs["max_tokens"] == 4096
+
+    def test_glm_stop_block_at_floor_keeps_max_tokens_and_client_extra_body(self) -> None:
+        result = _call_prepare(
+            extra_kwargs={"custom_llm_provider": "vertex_ai", "extra_body": {"other_option": "keep"}},
+            model="vertex_ai/openai/glm-5_3-flash",
+            max_tokens=4096,
+            stop_sequences=["</block>"],
+        )
+        completion_kwargs = result[0] if isinstance(result, tuple) else result
+
+        assert completion_kwargs["max_tokens"] == 4096
+        assert completion_kwargs["extra_body"] == {"other_option": "keep"}
+        assert completion_kwargs["reasoning_effort"] == "low"
+
+    def test_glm_without_stop_keeps_budget_but_still_gets_low_effort(self) -> None:
+        result = _call_prepare(
+            extra_kwargs={"custom_llm_provider": "vertex_ai"},
+            model="vertex_ai/openai/glm-5_3-flash",
+            max_tokens=2112,
+        )
+        completion_kwargs = result[0] if isinstance(result, tuple) else result
+
+        assert "stop" not in completion_kwargs
+        assert completion_kwargs["max_tokens"] == 2112
+        assert completion_kwargs["reasoning_effort"] == "low"
+
+    def test_glm_other_stop_keeps_budget(self) -> None:
+        result = _call_prepare(
+            extra_kwargs={"custom_llm_provider": "vertex_ai"},
+            model="vertex_ai/openai/glm-5_3-flash",
+            max_tokens=2112,
+            stop_sequences=["STOP"],
+        )
+        completion_kwargs = result[0] if isinstance(result, tuple) else result
+
+        assert completion_kwargs["stop"] == ["STOP"]
+        assert completion_kwargs["max_tokens"] == 2112
+
+    def test_qwen_stop_block_untouched_and_thinking_still_disabled(self) -> None:
+        result = _call_prepare(
+            extra_kwargs={
+                "custom_llm_provider": "vertex_ai",
+                "model_info": {"base_model": "vertex_ai/qwen3-8"},
+            },
+            model="claude-haiku-unlimited",
+            max_tokens=2112,
+            stop_sequences=["</block>"],
+        )
+        completion_kwargs = result[0] if isinstance(result, tuple) else result
+
+        assert completion_kwargs["max_tokens"] == 2112
+        assert "reasoning_effort" not in completion_kwargs
+        assert completion_kwargs["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}

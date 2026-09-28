@@ -233,6 +233,12 @@ def get_complete_model_list(
 
     If list contains wildcard -> return known provider models
     """
+    # no-default-models is a sentinel, not a literal model — strip it so it
+    # never surfaces, and suppress the unrestricted fall-through when set.
+    ndm = SpecialModelNames.no_default_models.value
+    has_no_default_models = ndm in key_models or ndm in team_models
+    key_models = [m for m in key_models if m != ndm]
+    team_models = [m for m in team_models if m != ndm]
 
     unique_models: Final = []
 
@@ -245,7 +251,7 @@ def get_complete_model_list(
         append_unique(key_models)
     elif team_models:
         append_unique(team_models)
-    else:
+    elif not has_no_default_models:
         append_unique(proxy_model_list)
         if include_model_access_groups:
             append_unique(list(model_access_groups.keys()))  # TODO: keys order

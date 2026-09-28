@@ -9745,11 +9745,12 @@ async def _get_access_group_models(
     proxy_logging_obj: Optional["ProxyLogging"],
 ) -> _AccessGroupModels:
     from litellm.proxy.auth.auth_checks import (
+        _get_listed_models_from_access_groups,
         get_authorized_resources_from_key_access_groups,
         get_models_from_access_groups,
     )
 
-    team_group_models: Final = await get_models_from_access_groups(
+    team_group_models: Final = await _get_listed_models_from_access_groups(
         access_group_ids=(team_object.access_group_ids or ()) if team_object is not None else (),
         prisma_client=prisma_client,
         user_api_key_cache=user_api_key_cache,
@@ -9760,7 +9761,9 @@ async def _get_access_group_models(
         team_object=team_object,
         resource_field="access_model_names",
     )
-    return _AccessGroupModels(team=tuple(team_group_models), key=tuple(key_group_models))
+    return _AccessGroupModels(
+        team=tuple(dict.fromkeys(team_group_models)), key=tuple(dict.fromkeys(key_group_models))
+    )
 
 
 async def _agent_access_group_visible_models(
@@ -9897,39 +9900,45 @@ async def get_available_models_for_user(
 
     effective_team_id: Final = team_id or user_api_key_dict.team_id
 
-    access_group_models: Final = (
-        await _get_access_group_models(
-            user_api_key_dict=user_api_key_dict,
-            team_object=requested_team_object
-            or await _get_team_object_for_access_groups(
-                team_id=effective_team_id,
-                prisma_client=prisma_client,
-                user_api_key_cache=user_api_key_cache,
-                proxy_logging_obj=proxy_logging_obj,
-            ),
+    access_group_models: Final = await _get_access_group_models(
+        user_api_key_dict=user_api_key_dict,
+        team_object=requested_team_object
+        or await _get_team_object_for_access_groups(
+            team_id=effective_team_id,
             prisma_client=prisma_client,
             user_api_key_cache=user_api_key_cache,
             proxy_logging_obj=proxy_logging_obj,
-        )
-        if key_models or team_models
-        else _AccessGroupModels()
+        ),
+        prisma_client=prisma_client,
+        user_api_key_cache=user_api_key_cache,
+        proxy_logging_obj=proxy_logging_obj,
     )
 
+    # A team carrying access groups is restricted to what those groups advertise even
+    # when its own model list is empty; without this the empty list reads as "no
+    # restriction" and every proxy model shows up in the picker.
+    team_is_restricted: Final = bool(team_models) or bool(access_group_models.team)
     key_model_names: Final = cast("list[str]", user_api_key_dict.models)  # cast-ok: key models are a string array
     key_model_check_skipped: Final = (
         bool(user_api_key_dict.config) or SpecialModelNames.all_team_models.value in key_model_names
     )
     granted_key_models: Final = (
-        (
-            *key_models,
-            *access_group_models.key,
-            *(access_group_models.team if key_model_check_skipped else ()),
+        tuple(
+            dict.fromkeys(
+                (
+                    *key_models,
+                    *access_group_models.key,
+                    *(access_group_models.team if key_model_check_skipped else ()),
+                )
+            )
         )
         if key_models
         else key_models
     )
     granted_team_models: Final = (
-        (*team_models, *access_group_models.team, *access_group_models.key) if team_models else team_models
+        tuple(dict.fromkeys((*team_models, *access_group_models.team, *access_group_models.key)))
+        if team_is_restricted
+        else team_models
     )
 
     # Get complete model list

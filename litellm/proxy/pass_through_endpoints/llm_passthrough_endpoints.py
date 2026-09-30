@@ -3773,6 +3773,207 @@ async def handle_gigachat_passthrough_router_model(
 
 
 @router.api_route(
+    "/decider/{endpoint:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH"],  # mutable-ok: FastAPI route methods
+    tags=["Decider Pass-through", "pass-through"],  # mutable-ok: FastAPI route tags
+)
+async def decider_proxy_route(
+    endpoint: str,
+    request: Request,
+    fastapi_response: Response,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    """
+    Pass-through for decider (SystemOne typed-decision) models on Vertex AI
+    dedicated endpoints (deployed via VertexAIModelSet with invoke-mode
+    containers).
+
+    The body's `model` must name a LiteLLM model group (the VertexAIModelSet
+    name, e.g. "eikos-27b"); the request is relayed to one of the group's
+    regional deployments with router retries/cooldowns and the proxy's Vertex
+    credentials. Swapping or upgrading the serving model is a deployment-side
+    change: clients only track the model group name.
+
+    The deployment `api_base` ends at the container's `/invoke/v1` prefix, so a
+    leading `v1/` on the endpoint is stripped: `POST /decider/v1/systemone` ->
+    `<api_base>/systemone`. Routes: `/v1/systemone`, `/v1/evaluate`,
+    `/v1/sessions...`, `/health`.
+    """
+    from litellm.proxy.proxy_server import (
+        general_settings,
+        llm_router,
+        proxy_config,
+        proxy_logging_obj,
+        select_data_generator,
+        user_api_base,
+        user_max_tokens,
+        user_model,
+        user_request_timeout,
+        user_temperature,
+        version,
+    )
+
+    request_body: Final[dict[str, object]] = dict(await _read_request_body(request=request))
+    raw_model: Final = request_body.get("model") or request.query_params.get("model")
+    model: Final = raw_model if isinstance(raw_model, str) else None
+    if (
+        not model
+        or llm_router is None
+        or not is_passthrough_request_using_router_model(request_body={"model": model}, llm_router=llm_router)
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "Decider pass-through requires 'model' in the body (or '?model=' query param) to name a "
+                "LiteLLM model group (the VertexAIModelSet name, e.g. 'eikos-27b')."
+            },
+        )
+
+    endpoint_path: Final = endpoint.lstrip("/").removeprefix("v1/")
+    # A leading v1/ is stripped: the deployment api_base already ends at the
+    # container's /invoke/v1 prefix, so POST /decider/v1/systemone targets
+    # <api_base>/systemone.
+
+    return await handle_decider_passthrough_router_model(
+        model=model,
+        endpoint=endpoint_path,
+        request=request,
+        request_body=request_body,
+        fastapi_response=fastapi_response,
+        llm_router=llm_router,
+        user_api_key_dict=user_api_key_dict,
+        proxy_logging_obj=proxy_logging_obj,
+        general_settings=general_settings,
+        proxy_config=proxy_config,
+        select_data_generator=select_data_generator,
+        user_model=user_model,
+        user_temperature=user_temperature,
+        user_request_timeout=user_request_timeout,
+        user_max_tokens=user_max_tokens,
+        user_api_base=user_api_base,
+        version=version,
+    )
+
+
+async def handle_decider_passthrough_router_model(
+    model: str,
+    endpoint: str,
+    request: Request,
+    request_body: dict,
+    fastapi_response: Response,
+    llm_router: litellm.Router,
+    user_api_key_dict: UserAPIKeyAuth,
+    proxy_logging_obj: ProxyLoggingType,
+    general_settings: dict,
+    proxy_config: _ProxyConfig,
+    select_data_generator: Callable,
+    user_model: str | None,
+    user_temperature: float | None,
+    user_request_timeout: float | None,
+    user_max_tokens: int | None,
+    user_api_base: str | None,
+    version: str | None,
+) -> Response | StreamingResponse:
+    """
+    Handle decider pass-through for router models (models defined in config.yaml
+    / registered by VertexAIModelSet). Uses the same common processing path as
+    non-router models so metadata, hooks and logging are properly initialized.
+    """
+    from litellm.proxy.common_request_processing import ProxyBaseLLMRequestProcessing
+
+    is_streaming: Final = bool(request_body.get("stream", False))
+
+    data: dict[str, Any] = dict(request_body)  # mutable-ok: mutated by the proxy pipeline
+    if user_api_key_dict is not None:
+        auth_metadata: Final = {
+            metadata_key: value
+            for metadata_key, value in (
+                ("user_api_key_user_id", getattr(user_api_key_dict, "user_id", None)),
+                ("user_api_key_team_id", getattr(user_api_key_dict, "team_id", None)),
+                ("user_api_key_org_id", getattr(user_api_key_dict, "org_id", None)),
+                ("agent_id", getattr(user_api_key_dict, "agent_id", None)),
+            )
+            if value is not None
+        }
+        existing_metadata: Final = data.get("metadata")
+        data["metadata"] = {
+            **(existing_metadata if isinstance(existing_metadata, dict) else {}),
+            **auth_metadata,
+        }
+
+    verbose_proxy_logger.debug(
+        "Decider router passthrough: model='%s', endpoint='%s', streaming=%s",
+        model,
+        endpoint,
+        is_streaming,
+    )
+
+    # Use the common processing path (same as non-router models): it initializes
+    # metadata, hooks, logging and spend tracking.
+    data["model"] = model
+    data["method"] = request.method
+    data["endpoint"] = endpoint
+    data["json"] = request_body
+    data["custom_llm_provider"] = LlmProviders.VERTEX_AI.value
+
+    # Deployment litellm_params must win over anything the caller sent — keys
+    # colliding with routing params would pin every relay to one deployment.
+    routing_keys: Final[tuple[str, ...]] = (
+        "api_base",
+        "api_key",
+        "base_url",
+        "vertex_project",
+        "vertex_ai_project",
+        "vertex_location",
+        "vertex_ai_location",
+        "vertex_credentials",
+        "vertex_ai_credentials",
+        "model_id",
+        "gigachat_auth_url",
+        "gigachat_access_token",
+        "gigachat_scope",
+    )
+    for key in routing_keys:
+        data.pop(key, None)
+
+    client: Final = get_async_httpx_client(
+        llm_provider=LlmProviders.VERTEX_AI,
+        params={"timeout": httpx.Timeout(timeout=600.0, connect=5.0)},
+    )
+    data["client"] = client
+
+    base_llm_response_processor: Final = ProxyBaseLLMRequestProcessing(data=data)
+    try:
+        result = await base_llm_response_processor.base_passthrough_process_llm_request(
+            request=request,
+            fastapi_response=fastapi_response,
+            user_api_key_dict=user_api_key_dict,
+            proxy_logging_obj=proxy_logging_obj,
+            general_settings=general_settings,
+            proxy_config=proxy_config,
+            select_data_generator=select_data_generator,
+            llm_router=llm_router,
+            model=model,
+            user_model=user_model,
+            user_temperature=user_temperature,
+            user_request_timeout=user_request_timeout,
+            user_max_tokens=user_max_tokens,
+            user_api_base=user_api_base,
+            version=version,
+        )
+    except Exception as e:  # noqa: BLE001
+        await base_llm_response_processor._handle_llm_api_exception(
+            e=e,
+            user_api_key_dict=user_api_key_dict,
+            proxy_logging_obj=proxy_logging_obj,
+        )
+
+    if isinstance(result, StreamingResponse) and result.headers.get("Content-Type") is None:
+        result.headers["Content-Type"] = "text/event-stream; charset=utf-8"
+    return result
+
+
+@router.api_route(
     "/watsonx/{endpoint:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
     tags=["Watsonx Pass-through", "pass-through"],

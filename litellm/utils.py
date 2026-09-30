@@ -9121,6 +9121,12 @@ class ProviderConfigManager:
             )
 
             return NvidiaNimPassthroughConfig()
+        elif LlmProviders.VERTEX_AI == provider:
+            from litellm.llms.vertex_ai.passthrough.transformation import (
+                VertexAIDeciderPassthroughConfig,
+            )
+
+            return VertexAIDeciderPassthroughConfig()
         return None
 
     @staticmethod

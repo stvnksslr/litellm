@@ -25629,6 +25629,228 @@
           ]
         }
       },
+      "/decider/{endpoint}": {
+        "delete": {
+          "description": "Pass-through for decider (SystemOne typed-decision) models on Vertex AI\ndedicated endpoints (deployed via VertexAIModelSet with invoke-mode\ncontainers).\n\nThe body's `model` must name a LiteLLM model group (the VertexAIModelSet\nname, e.g. \"eikos-27b\"); the request is relayed to one of the group's\nregional deployments with router retries/cooldowns and the proxy's Vertex\ncredentials. Swapping or upgrading the serving model is a deployment-side\nchange: clients only track the model group name.\n\nThe deployment `api_base` ends at the container's `/invoke/v1` prefix, so a\nleading `v1/` on the endpoint is stripped: `POST /decider/v1/systemone` ->\n`<api_base>/systemone`. Routes: `/v1/systemone`, `/v1/evaluate`,\n`/v1/sessions...`, `/health`.",
+          "operationId": "decider_proxy_route_decider__endpoint__delete",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "endpoint",
+              "required": true,
+              "schema": {
+                "title": "Endpoint",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {}
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "security": [
+            {
+              "APIKeyHeader": []
+            }
+          ],
+          "summary": "Decider Proxy Route",
+          "tags": [
+            "llm_passthrough"
+          ]
+        },
+        "get": {
+          "description": "Pass-through for decider (SystemOne typed-decision) models on Vertex AI\ndedicated endpoints (deployed via VertexAIModelSet with invoke-mode\ncontainers).\n\nThe body's `model` must name a LiteLLM model group (the VertexAIModelSet\nname, e.g. \"eikos-27b\"); the request is relayed to one of the group's\nregional deployments with router retries/cooldowns and the proxy's Vertex\ncredentials. Swapping or upgrading the serving model is a deployment-side\nchange: clients only track the model group name.\n\nThe deployment `api_base` ends at the container's `/invoke/v1` prefix, so a\nleading `v1/` on the endpoint is stripped: `POST /decider/v1/systemone` ->\n`<api_base>/systemone`. Routes: `/v1/systemone`, `/v1/evaluate`,\n`/v1/sessions...`, `/health`.",
+          "operationId": "decider_proxy_route_decider__endpoint__get",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "endpoint",
+              "required": true,
+              "schema": {
+                "title": "Endpoint",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {}
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "security": [
+            {
+              "APIKeyHeader": []
+            }
+          ],
+          "summary": "Decider Proxy Route",
+          "tags": [
+            "llm_passthrough"
+          ]
+        },
+        "patch": {
+          "description": "Pass-through for decider (SystemOne typed-decision) models on Vertex AI\ndedicated endpoints (deployed via VertexAIModelSet with invoke-mode\ncontainers).\n\nThe body's `model` must name a LiteLLM model group (the VertexAIModelSet\nname, e.g. \"eikos-27b\"); the request is relayed to one of the group's\nregional deployments with router retries/cooldowns and the proxy's Vertex\ncredentials. Swapping or upgrading the serving model is a deployment-side\nchange: clients only track the model group name.\n\nThe deployment `api_base` ends at the container's `/invoke/v1` prefix, so a\nleading `v1/` on the endpoint is stripped: `POST /decider/v1/systemone` ->\n`<api_base>/systemone`. Routes: `/v1/systemone`, `/v1/evaluate`,\n`/v1/sessions...`, `/health`.",
+          "operationId": "decider_proxy_route_decider__endpoint__patch",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "endpoint",
+              "required": true,
+              "schema": {
+                "title": "Endpoint",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {}
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "security": [
+            {
+              "APIKeyHeader": []
+            }
+          ],
+          "summary": "Decider Proxy Route",
+          "tags": [
+            "llm_passthrough"
+          ]
+        },
+        "post": {
+          "description": "Pass-through for decider (SystemOne typed-decision) models on Vertex AI\ndedicated endpoints (deployed via VertexAIModelSet with invoke-mode\ncontainers).\n\nThe body's `model` must name a LiteLLM model group (the VertexAIModelSet\nname, e.g. \"eikos-27b\"); the request is relayed to one of the group's\nregional deployments with router retries/cooldowns and the proxy's Vertex\ncredentials. Swapping or upgrading the serving model is a deployment-side\nchange: clients only track the model group name.\n\nThe deployment `api_base` ends at the container's `/invoke/v1` prefix, so a\nleading `v1/` on the endpoint is stripped: `POST /decider/v1/systemone` ->\n`<api_base>/systemone`. Routes: `/v1/systemone`, `/v1/evaluate`,\n`/v1/sessions...`, `/health`.",
+          "operationId": "decider_proxy_route_decider__endpoint__post",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "endpoint",
+              "required": true,
+              "schema": {
+                "title": "Endpoint",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {}
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "security": [
+            {
+              "APIKeyHeader": []
+            }
+          ],
+          "summary": "Decider Proxy Route",
+          "tags": [
+            "llm_passthrough"
+          ]
+        },
+        "put": {
+          "description": "Pass-through for decider (SystemOne typed-decision) models on Vertex AI\ndedicated endpoints (deployed via VertexAIModelSet with invoke-mode\ncontainers).\n\nThe body's `model` must name a LiteLLM model group (the VertexAIModelSet\nname, e.g. \"eikos-27b\"); the request is relayed to one of the group's\nregional deployments with router retries/cooldowns and the proxy's Vertex\ncredentials. Swapping or upgrading the serving model is a deployment-side\nchange: clients only track the model group name.\n\nThe deployment `api_base` ends at the container's `/invoke/v1` prefix, so a\nleading `v1/` on the endpoint is stripped: `POST /decider/v1/systemone` ->\n`<api_base>/systemone`. Routes: `/v1/systemone`, `/v1/evaluate`,\n`/v1/sessions...`, `/health`.",
+          "operationId": "decider_proxy_route_decider__endpoint__put",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "endpoint",
+              "required": true,
+              "schema": {
+                "title": "Endpoint",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {}
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "security": [
+            {
+              "APIKeyHeader": []
+            }
+          ],
+          "summary": "Decider Proxy Route",
+          "tags": [
+            "llm_passthrough"
+          ]
+        }
+      },
       "/eu.assemblyai/{endpoint}": {
         "delete": {
           "operationId": "assemblyai_proxy_route_eu_assemblyai__endpoint__delete",

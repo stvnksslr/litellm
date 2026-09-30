@@ -60,6 +60,17 @@ Line numbers are as of the current `main-pitchbook` tip. For modified files they
 - `litellm/llms/anthropic/experimental_pass_through/adapters/model_garden_reasoning.py` L1-L91: new, Qwen/GLM family detection; Qwen gets `chat_template_kwargs.enable_thinking: false` and effort mapped to low/medium/xhigh; GLM defaults to `low`, requested tier collapsed to low/high. Both replace a summary-wrapped effort with a plain tier
 - `litellm/llms/anthropic/experimental_pass_through/adapters/claude_code_classifier.py` L1-L43: new, detect classifier request by `</block>` stop sequence; floor GLM `max_tokens` at 4096
 
+## Decider (SystemOne) pass-through routing
+
+Generic typed-decision API routing over Vertex AI dedicated endpoints. The current serving model is Eikos; the route is keyed on the LiteLLM model group (`VertexAIModelSet` name), so the Vertex model can be replaced or upgraded without gateway changes.
+
+- `litellm/llms/vertex_ai/passthrough/transformation.py` L1-L145: new `VertexAIDeciderPassthroughConfig` — SystemOne typed-decision pass-through for invoke-mode Vertex deployments: URL join is `api_base + /<endpoint>` (the deployment `api_base` ends at the container's `/invoke/v1` prefix), auth via `VertexBase` OAuth (Workload Identity or `vertex_credentials`), and non-streaming responses map SystemOne `usage.input_tokens`/`output_tokens` onto `prompt_tokens`/`completion_tokens`. The response's own `model` field is a server-side weight path, so it is not used for attribution
+- `litellm/llms/vertex_ai/passthrough/__init__.py` L1-L3: exports
+- `litellm/utils.py` L9124-L9129: `ProviderConfigManager.get_provider_passthrough_config` returns the config for `LlmProviders.VERTEX_AI`
+- `litellm/proxy/pass_through_endpoints/llm_passthrough_endpoints.py` L3775-L3975: new `/decider/{endpoint:path}` route + `handle_decider_passthrough_router_model` — body `model` (or `?model=`) must name a router model group; relay through `ProxyBaseLLMRequestProcessing.base_passthrough_process_llm_request` so auth metadata, hooks, logging and budgets apply; leading `v1/` stripped against the api_base; deployment `litellm_params` win over caller-sent routing keys (`api_base`/`api_key`/`vertex_*`) so per-region load balancing holds
+- `litellm/proxy/_lazy_features.py` L204: `/decider/` prefix on the `llm_passthrough` lazy slot so the router activates on first use
+- `tests/test_litellm/proxy/pass_through_endpoints/test_decider_pass_through_endpoints.py` L1-L308: route and config tests — URL join, usage mapping, bearer injection, `v1/` strip, metadata isolation, query-param model, unknown-group rejection
+
 ## Model discovery and access groups
 
 - `litellm/proxy/utils.py` L8092-L8110, L8192-L8214: team with access groups bounded to `_get_listed_models_from_access_groups`; no fall-through to all proxy models

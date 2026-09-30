@@ -497,6 +497,7 @@ class LiteLLMRoutes(enum.Enum):
         "/watsonx",
         "/nvidia_nim",
         "/deepgram",
+        "/decider",
     ]
 
     #########################################################

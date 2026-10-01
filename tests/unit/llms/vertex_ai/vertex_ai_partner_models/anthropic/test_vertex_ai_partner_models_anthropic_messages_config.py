@@ -1,10 +1,12 @@
 import copy
 import json
 import os
+import pytest
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from litellm import anthropic_beta_headers_manager
 from litellm.llms.vertex_ai.vertex_ai_partner_models.anthropic.experimental_pass_through.transformation import (
     VertexAIPartnerModelsAnthropicMessagesConfig,
 )
@@ -254,6 +256,64 @@ def test_both_compact_and_context_management_headers_added():
         assert "context-management-2025-06-27" in updated_headers["anthropic-beta"], (
             f"anthropic-beta should contain 'context-management-2025-06-27', got: {updated_headers['anthropic-beta']}"
         )
+
+
+def _validate_vertex_headers(client_headers, messages):
+    config = VertexAIPartnerModelsAnthropicMessagesConfig()
+    litellm_params = {
+        "vertex_ai_project": "test-project",
+        "vertex_ai_location": "global",
+        "vertex_credentials": "{}",
+    }
+
+    with (
+        patch.object(config, "_ensure_access_token", return_value=("token", "test-project")),
+        patch.object(config, "get_complete_vertex_url", return_value="https://mock-url"),
+    ):
+        updated_headers, _ = config.validate_anthropic_messages_environment(
+            headers=client_headers,
+            model="claude-opus-5-5",
+            messages=messages,
+            optional_params={"max_tokens": 64},
+            litellm_params=litellm_params,
+            api_base=None,
+        )
+    return updated_headers
+
+
+@pytest.fixture(autouse=True)
+def bundled_beta_allowlist(monkeypatch):
+    monkeypatch.setenv("LITELLM_LOCAL_ANTHROPIC_BETA_HEADERS", "True")
+    monkeypatch.setattr(anthropic_beta_headers_manager, "_BETA_HEADERS_CONFIG", None)
+    yield
+    monkeypatch.setattr(anthropic_beta_headers_manager, "_BETA_HEADERS_CONFIG", None)
+
+
+@pytest.mark.parametrize(
+    "client_headers",
+    [{"anthropic-beta": "per-turn-control-2026-07-01"}, {}],
+    ids=["client_sends_beta", "client_omits_beta"],
+)
+def test_per_message_output_config_reaches_vertex_with_per_turn_control_beta(client_headers, monkeypatch):
+    """Vertex rejects a message-level `output_config` as an extra input unless the per-turn-control beta is present, so the beta must survive the Vertex beta filter."""
+    from litellm.anthropic_beta_headers_manager import update_headers_with_filtered_beta
+
+    messages = [
+        {"role": "user", "content": [{"type": "text", "text": "Hello"}]},
+        {"role": "system", "content": [{"type": "text", "text": "# Environment"}], "output_config": {"effort": "low"}},
+    ]
+
+    filtered = update_headers_with_filtered_beta(
+        headers=_validate_vertex_headers(client_headers, messages), provider="vertex_ai"
+    )
+
+    assert filtered["anthropic-beta"].split(",").count("per-turn-control-2026-07-01") == 1
+
+
+def test_no_per_message_output_config_leaves_per_turn_control_beta_out():
+    headers = _validate_vertex_headers({}, [{"role": "user", "content": "Hello"}])
+
+    assert "per-turn-control-2026-07-01" not in headers.get("anthropic-beta", "")
 
 
 def test_validate_environment_always_refreshes_token_ignoring_stale_bearer():

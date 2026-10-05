@@ -1,6 +1,6 @@
 # Fork patch manifest (delta vs upstream v1.104.0, `v1.104.0..HEAD`)
 
-Line numbers are as of the current `main-pitchbook` tip. For modified files they are diff-hunk ranges (`git diff v1.104.0..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 103 files, +7,492 / -197, roughly 71% tests
+Line numbers are as of the current `main-pitchbook` tip. For modified files they are diff-hunk ranges (`git diff v1.104.0..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 105 files, +7,576 / -197, roughly 71% tests
 
 ## Agentic coding clients on the proxy (/v1/messages bridge)
 
@@ -33,6 +33,7 @@ Line numbers are as of the current `main-pitchbook` tip. For modified files they
 
 - `litellm/llms/openai/chat/gpt_5_transformation.py` L15, L109, L114, L118: upstream's `_GPT_SERIES_VERSION` unanchored and applied with `search`, so `gpt-<major>.<minor>` is found anywhere in a custom deployment name; `is_model_gpt_5_2/5_4` reuse `_gpt_series_version`
 - `litellm/llms/azure/chat/gpt_5_transformation.py` L16-L24, L131-L141: floor `max_completion_tokens` at 3 (`AZURE_GPT5_MIN_COMPLETION_TOKENS`) so one-token availability probes get empty-with-`length` instead of 400
+- `model_prices_and_context_window.json`, `litellm/model_prices_and_context_window_backup.json` L77430-L77467: backport of the `bedrock_mantle/openai.gpt-6.1-sol` row from upstream #43763 (as it reads on upstream main, after later edits). Drop on the next rebase past it
 
 ## Spend accuracy
 

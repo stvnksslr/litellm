@@ -1,6 +1,6 @@
-# Fork patch manifest (delta vs upstream v1.104.0, `v1.104.0..HEAD`)
+# Fork patch manifest (delta vs upstream v1.104.2, `v1.104.2..HEAD`)
 
-Line numbers are as of the current `main-pitchbook` tip. For modified files they are diff-hunk ranges (`git diff v1.104.0..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 105 files, +7,576 / -197, roughly 71% tests
+Line numbers are as of the current `main-pitchbook` tip. For modified files they are diff-hunk ranges (`git diff v1.104.2..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 105 files, +7,576 / -197, roughly 65% tests
 
 ## Agentic coding clients on the proxy (/v1/messages bridge)
 
@@ -33,7 +33,7 @@ Line numbers are as of the current `main-pitchbook` tip. For modified files they
 
 - `litellm/llms/openai/chat/gpt_5_transformation.py` L15, L109, L114, L118: upstream's `_GPT_SERIES_VERSION` unanchored and applied with `search`, so `gpt-<major>.<minor>` is found anywhere in a custom deployment name; `is_model_gpt_5_2/5_4` reuse `_gpt_series_version`
 - `litellm/llms/azure/chat/gpt_5_transformation.py` L16-L24, L131-L141: floor `max_completion_tokens` at 3 (`AZURE_GPT5_MIN_COMPLETION_TOKENS`) so one-token availability probes get empty-with-`length` instead of 400
-- `model_prices_and_context_window.json`, `litellm/model_prices_and_context_window_backup.json` L77430-L77467: backport of the `bedrock_mantle/openai.gpt-6.1-sol` row from upstream #43763 (as it reads on upstream main, after later edits). Drop on the next rebase past it
+- `model_prices_and_context_window.json`, `litellm/model_prices_and_context_window_backup.json` L77482-L77519: backport of the `bedrock_mantle/openai.gpt-6.1-sol` row from upstream #43763 (as it reads on upstream main, after later edits). Drop on the next rebase past it
 
 ## Spend accuracy
 
@@ -56,8 +56,8 @@ Line numbers are as of the current `main-pitchbook` tip. For modified files they
 - `litellm/anthropic_beta_headers_config.json` L197: `per-turn-control-2026-07-01` allowlisted for vertex_ai
 - `litellm/llms/vertex_ai/vertex_model_garden/main.py` L20-L28, L128-L130: merge system messages on model garden route
 - `litellm/llms/vertex_ai/vertex_model_garden/transformation.py` L1-L13: new `VertexAIModelGardenOpenAIConfig`, declares `reasoning_effort` on top of `VertexAILlama3Config`
-- `litellm/utils.py` L4289-L4301: drop `stream_options` in `pre_process_non_default_params` unless `stream is True`; keeps only what upstream's `normalize_responses_api_stream_options` forwards so the Responses bridge contract holds
-- `litellm/utils.py` L8635-L8640: `ProviderConfigManager` returns model-garden config for `openai/` Vertex prefix, which `get_supported_openai_params` picks up before its own provider branches
+- `litellm/utils.py` L4292-L4304: drop `stream_options` in `pre_process_non_default_params` unless `stream is True`; keeps only what upstream's `normalize_responses_api_stream_options` forwards so the Responses bridge contract holds
+- `litellm/utils.py` L8638-L8643: `ProviderConfigManager` returns model-garden config for `openai/` Vertex prefix, which `get_supported_openai_params` picks up before its own provider branches
 - `litellm/llms/anthropic/experimental_pass_through/adapters/model_garden_reasoning.py` L1-L91: new, Qwen/GLM family detection; Qwen gets `chat_template_kwargs.enable_thinking: false` and effort mapped to low/medium/xhigh; GLM defaults to `low`, requested tier collapsed to low/high. Both replace a summary-wrapped effort with a plain tier
 - `litellm/llms/anthropic/experimental_pass_through/adapters/claude_code_classifier.py` L1-L43: new, detect classifier request by `</block>` stop sequence; floor GLM `max_tokens` at 4096
 
@@ -67,9 +67,9 @@ Generic typed-decision API routing over Vertex AI dedicated endpoints. The curre
 
 - `litellm/llms/vertex_ai/passthrough/transformation.py` L1-L145: new `VertexAIDeciderPassthroughConfig` — SystemOne typed-decision pass-through for invoke-mode Vertex deployments: URL join is `api_base + /<endpoint>` (the deployment `api_base` ends at the container's `/invoke/v1` prefix), auth via `VertexBase` OAuth (Workload Identity or `vertex_credentials`), and non-streaming responses map SystemOne `usage.input_tokens`/`output_tokens` onto `prompt_tokens`/`completion_tokens`. The response's own `model` field is a server-side weight path, so it is not used for attribution
 - `litellm/llms/vertex_ai/passthrough/__init__.py` L1-L3: exports
-- `litellm/utils.py` L9338-L9343: `ProviderConfigManager.get_provider_passthrough_config` returns the config for `LlmProviders.VERTEX_AI`
+- `litellm/utils.py` L9341-L9346: `ProviderConfigManager.get_provider_passthrough_config` returns the config for `LlmProviders.VERTEX_AI`
 - `litellm/proxy/pass_through_endpoints/llm_passthrough_endpoints.py` L3991-L4191: new `/decider/{endpoint:path}` route + `handle_decider_passthrough_router_model` — body `model` (or `?model=`) must name a router model group; relay through `ProxyBaseLLMRequestProcessing.base_passthrough_process_llm_request` so auth metadata, hooks, logging and budgets apply; leading `v1/` stripped against the api_base; deployment `litellm_params` win over caller-sent routing keys (`api_base`/`api_key`/`vertex_*`) so per-region load balancing holds
-- `litellm/proxy/_lazy_features.py` L204: `/decider/` prefix on the `llm_passthrough` lazy slot so the router activates on first use
+- `litellm/proxy/_lazy_features.py` L205: `/decider/` prefix on the `llm_passthrough` lazy slot so the router activates on first use
 - `tests/test_litellm/proxy/pass_through_endpoints/test_decider_pass_through_endpoints.py` L1-L308: route and config tests — URL join, usage mapping, bearer injection, `v1/` strip, metadata isolation, query-param model, unknown-group rejection
 
 ## Model discovery and access groups
@@ -129,7 +129,7 @@ Generic typed-decision API routing over Vertex AI dedicated endpoints. The curre
 - `tests/test_litellm/proxy/hooks/test_proxy_track_cost_callback.py` L1955-L2017: failure log model resolution
 - `tests/test_litellm/proxy/management_endpoints/test_access_group_endpoints.py` L30-L110, L221-L239: listed_model_names in create/update payloads
 - `tests/test_litellm/proxy/utils/helpers/test_model_access.py` L373-L425: access-group listed-models bounding
-- `tests/unit/test_utils.py` L6347-L6394: stream_options drop unless streaming
+- `tests/unit/test_utils.py` L6349-L6396: stream_options drop unless streaming
 - Fixtures: `tests/test_litellm/llms/anthropic/experimental_pass_through/adapters/fixtures/claude_code_2_1_266/`: recorded Claude Code 2.1.266 payloads (main_loop, main_loop_title_no_thinking, probe_stage1_sonnet5, stage1, stage2, tool_search_stage1, tool_search_stage2)
 - Dashboard fixtures: `AccessGroupsPage.test.tsx`, `AccessGroupEditModal.integration.test.tsx`, `useAccessGroups.test.ts`, `AccessGroupsDetailsPage.test.tsx`, `AccessGroupCreateDialog.test.tsx`, `mapper.test.ts`, `model_info_view.test.tsx`: upstream fixtures carry the fork's required `listed_model_names`
 
@@ -144,6 +144,14 @@ Generic typed-decision API routing over Vertex AI dedicated endpoints. The curre
 ## Absorbed by upstream (no longer carried)
 
 Every drop below was verified by reverting the patch and rerunning its tests or an end-to-end probe
+
+### v1.104.1 and v1.104.2
+
+Nothing absorbed. The two patch releases touch fork-adjacent files (`litellm/proxy/_lazy_features.py`, `litellm/proxy/_types.py`, `litellm/utils.py`, `tests/unit/test_utils.py`, both price JSONs), but they only add code beside the fork's hunks. The new `/v1/decisions` and `/v1/systemone` routes (the Decisions API in `litellm/decisions/`) are a different surface from the fork's `/decider/` Vertex pass-through, so both stay
+
+The `bedrock_mantle/openai.gpt-6.1-sol` row is still needed at v1.104.2. It first appears upstream in v1.105.0-rc.3, so drop it when the fork moves onto a 1.105 tag
+
+The v1.103.x stable-only gaps are unchanged. v1.104.2 still lacks the Azure AI Foundry `dangerous-tool-use` beta for `safeguards` (`_with_dangerous_tool_use_beta_for_safeguards` in v1.103.2), and no 1.104.1 or 1.104.2 commit mentions #43642 or #43656. The fork carries neither
 
 ### v1.104.0
 

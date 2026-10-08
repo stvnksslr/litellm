@@ -1461,6 +1461,56 @@ async def test_key_info_returns_lifetime_total_spend_next_to_resettable_spend(mo
 
 
 @pytest.mark.asyncio
+async def test_info_key_fn_without_any_key_returns_400_without_db_call(monkeypatch):
+    """Regression: /key/info with no key param and no key in auth used to reach Prisma with token=None and 500."""
+    from prisma.errors import MissingRequiredValueError
+
+    from litellm.proxy.management_endpoints.key_management_endpoints import info_key_fn
+
+    mock_prisma_client = AsyncMock()
+    monkeypatch.setattr("litellm.proxy.proxy_server.prisma_client", mock_prisma_client)
+    mock_prisma_client.db.litellm_verificationtoken.find_unique = AsyncMock(
+        side_effect=MissingRequiredValueError({"error": "`where.token`: A value is required but not set"})
+    )
+
+    with pytest.raises(ProxyException) as exc_info:
+        await info_key_fn(
+            key=None,
+            user_api_key_dict=UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN, api_key=None),
+        )
+
+    assert int(exc_info.value.code) == 400
+    assert exc_info.value.param == "key"
+    mock_prisma_client.db.litellm_verificationtoken.find_unique.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_info_key_fn_without_query_param_uses_authorization_header_key(monkeypatch):
+    """With no key query param, the key resolved during auth must still be looked up."""
+    from litellm.proxy.management_endpoints.key_management_endpoints import info_key_fn
+    from litellm.proxy.utils import hash_token
+
+    mock_prisma_client = AsyncMock()
+    monkeypatch.setattr("litellm.proxy.proxy_server.prisma_client", mock_prisma_client)
+    mock_prisma_client.db.litellm_verificationtoken.find_unique = AsyncMock(
+        return_value=_stored_key_with_lifetime_spend(
+            token=hash_token("sk-test-key-456"), spend=0.0, total_spend=3.75
+        )
+    )
+
+    result = await info_key_fn(
+        key=None,
+        user_api_key_dict=UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN, api_key="sk-test-key-456"),
+    )
+
+    mock_prisma_client.db.litellm_verificationtoken.find_unique.assert_called_once_with(
+        where={"token": hash_token("sk-test-key-456")},
+        include={"litellm_budget_table": True},
+    )
+    assert result["info"]["total_spend"] == 3.75
+
+
+@pytest.mark.asyncio
 async def test_list_keys_full_object_returns_lifetime_total_spend():
     mock_prisma_client = AsyncMock()
     mock_prisma_client.db.litellm_verificationtoken.find_many = AsyncMock(

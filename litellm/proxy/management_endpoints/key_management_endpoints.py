@@ -4427,9 +4427,14 @@ async def info_key_fn(
 
         # default to using Auth token if no key is passed in
         key = key or user_api_key_dict.api_key
-        hashed_key: str | None = key
-        if key is not None:
-            hashed_key = _hash_token_if_needed(token=key)
+        if key is None:
+            raise ProxyException(
+                message="No key passed in query param 'key' and none in the Authorization header.",
+                type=ProxyErrorTypes.bad_request_error,
+                param="key",
+                code=status.HTTP_400_BAD_REQUEST,
+            )
+        hashed_key: Final = _hash_token_if_needed(token=key)
         live_key_info: Final = await _prisma_table(VerificationTokenRepository(prisma_client)).find_unique(
             where={"token": hashed_key},
             include={"litellm_budget_table": True},
@@ -4488,7 +4493,7 @@ async def info_key_fn(
 
 
 async def _find_deleted_key_info(
-    prisma_client: PrismaClient, hashed_key: str | None
+    prisma_client: PrismaClient, hashed_key: str
 ) -> LiteLLM_DeletedVerificationToken | None:
     archived_row: Final = await _deleted_verification_token_table(prisma_client).find_first(
         where={"token": hashed_key},

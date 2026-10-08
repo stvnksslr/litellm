@@ -4398,6 +4398,107 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/decider/{endpoint}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Decider Proxy Route
+         * @description Pass-through for decider (SystemOne typed-decision) models on Vertex AI
+         *     dedicated endpoints (deployed via VertexAIModelSet with invoke-mode
+         *     containers).
+         *
+         *     The body's `model` must name a LiteLLM model group (the VertexAIModelSet
+         *     name, e.g. "eikos-27b"); the request is relayed to one of the group's
+         *     regional deployments with router retries/cooldowns and the proxy's Vertex
+         *     credentials. Swapping or upgrading the serving model is a deployment-side
+         *     change: clients only track the model group name.
+         *
+         *     The deployment `api_base` ends at the container's `/invoke/v1` prefix, so a
+         *     leading `v1/` on the endpoint is stripped: `POST /decider/v1/systemone` ->
+         *     `<api_base>/systemone`. Routes: `/v1/systemone`, `/v1/evaluate`,
+         *     `/v1/sessions...`, `/health`.
+         */
+        get: operations["decider_proxy_route_decider__endpoint__get"];
+        /**
+         * Decider Proxy Route
+         * @description Pass-through for decider (SystemOne typed-decision) models on Vertex AI
+         *     dedicated endpoints (deployed via VertexAIModelSet with invoke-mode
+         *     containers).
+         *
+         *     The body's `model` must name a LiteLLM model group (the VertexAIModelSet
+         *     name, e.g. "eikos-27b"); the request is relayed to one of the group's
+         *     regional deployments with router retries/cooldowns and the proxy's Vertex
+         *     credentials. Swapping or upgrading the serving model is a deployment-side
+         *     change: clients only track the model group name.
+         *
+         *     The deployment `api_base` ends at the container's `/invoke/v1` prefix, so a
+         *     leading `v1/` on the endpoint is stripped: `POST /decider/v1/systemone` ->
+         *     `<api_base>/systemone`. Routes: `/v1/systemone`, `/v1/evaluate`,
+         *     `/v1/sessions...`, `/health`.
+         */
+        put: operations["decider_proxy_route_decider__endpoint__put"];
+        /**
+         * Decider Proxy Route
+         * @description Pass-through for decider (SystemOne typed-decision) models on Vertex AI
+         *     dedicated endpoints (deployed via VertexAIModelSet with invoke-mode
+         *     containers).
+         *
+         *     The body's `model` must name a LiteLLM model group (the VertexAIModelSet
+         *     name, e.g. "eikos-27b"); the request is relayed to one of the group's
+         *     regional deployments with router retries/cooldowns and the proxy's Vertex
+         *     credentials. Swapping or upgrading the serving model is a deployment-side
+         *     change: clients only track the model group name.
+         *
+         *     The deployment `api_base` ends at the container's `/invoke/v1` prefix, so a
+         *     leading `v1/` on the endpoint is stripped: `POST /decider/v1/systemone` ->
+         *     `<api_base>/systemone`. Routes: `/v1/systemone`, `/v1/evaluate`,
+         *     `/v1/sessions...`, `/health`.
+         */
+        post: operations["decider_proxy_route_decider__endpoint__post"];
+        /**
+         * Decider Proxy Route
+         * @description Pass-through for decider (SystemOne typed-decision) models on Vertex AI
+         *     dedicated endpoints (deployed via VertexAIModelSet with invoke-mode
+         *     containers).
+         *
+         *     The body's `model` must name a LiteLLM model group (the VertexAIModelSet
+         *     name, e.g. "eikos-27b"); the request is relayed to one of the group's
+         *     regional deployments with router retries/cooldowns and the proxy's Vertex
+         *     credentials. Swapping or upgrading the serving model is a deployment-side
+         *     change: clients only track the model group name.
+         *
+         *     The deployment `api_base` ends at the container's `/invoke/v1` prefix, so a
+         *     leading `v1/` on the endpoint is stripped: `POST /decider/v1/systemone` ->
+         *     `<api_base>/systemone`. Routes: `/v1/systemone`, `/v1/evaluate`,
+         *     `/v1/sessions...`, `/health`.
+         */
+        delete: operations["decider_proxy_route_decider__endpoint__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Decider Proxy Route
+         * @description Pass-through for decider (SystemOne typed-decision) models on Vertex AI
+         *     dedicated endpoints (deployed via VertexAIModelSet with invoke-mode
+         *     containers).
+         *
+         *     The body's `model` must name a LiteLLM model group (the VertexAIModelSet
+         *     name, e.g. "eikos-27b"); the request is relayed to one of the group's
+         *     regional deployments with router retries/cooldowns and the proxy's Vertex
+         *     credentials. Swapping or upgrading the serving model is a deployment-side
+         *     change: clients only track the model group name.
+         *
+         *     The deployment `api_base` ends at the container's `/invoke/v1` prefix, so a
+         *     leading `v1/` on the endpoint is stripped: `POST /decider/v1/systemone` ->
+         *     `<api_base>/systemone`. Routes: `/v1/systemone`, `/v1/evaluate`,
+         *     `/v1/sessions...`, `/health`.
+         */
+        patch: operations["decider_proxy_route_decider__endpoint__patch"];
+        trace?: never;
+    };
     "/decisions": {
         parameters: {
             query?: never;
@@ -53245,6 +53346,161 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EnvironmentReport"];
+                };
+            };
+        };
+    };
+    decider_proxy_route_decider__endpoint__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                endpoint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decider_proxy_route_decider__endpoint__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                endpoint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decider_proxy_route_decider__endpoint__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                endpoint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decider_proxy_route_decider__endpoint__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                endpoint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decider_proxy_route_decider__endpoint__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                endpoint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

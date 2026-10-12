@@ -935,7 +935,7 @@ def test_gate_translates_when_supported_endpoints_absent(monkeypatch):
 
 def _bridge_stubs(monkeypatch):
     """Patch both translation bridges so the routing decision can be read back."""
-    from litellm.llms.anthropic.experimental_pass_through.messages import handler
+    from litellm.llms.anthropic.pass_through.messages import handler
 
     monkeypatch.setattr(
         handler.LiteLLMMessagesToResponsesAPIHandler,
@@ -953,7 +953,7 @@ WEB_SEARCH_TOOL = {"type": "web_search_20250305", "name": "web_search", "max_use
 
 
 def _route(monkeypatch, **overrides):
-    from litellm.llms.anthropic.experimental_pass_through.messages.handler import (
+    from litellm.llms.anthropic.pass_through.messages.handler import (
         anthropic_messages_handler,
     )
 

@@ -385,7 +385,7 @@ async def test_budget_error_response_includes_requested_model():
     setattr(litellm.proxy.proxy_server, "master_key", "sk-1234")
     setattr(litellm.proxy.proxy_server, "prisma_client", "hello-world")
 
-    request = Request(scope={"type": "http"})
+    request = Request(scope={"type": "http", "method": "POST", "path": "/chat/completions", "headers": []})
     request._url = URL(url="/chat/completions")
 
     async def return_body():

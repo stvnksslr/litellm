@@ -4139,7 +4139,9 @@ def test_bedrock_converse_messages_pt_user_message_without_content_adds_no_block
 
     assert _bedrock_converse_messages_pt(
         messages=with_message, model="anthropic.claude-haiku-4-5", llm_provider="bedrock"
-    ) == _bedrock_converse_messages_pt(messages=without_message, model="anthropic.claude-haiku-4-5", llm_provider="bedrock")
+    ) == _bedrock_converse_messages_pt(
+        messages=without_message, model="anthropic.claude-haiku-4-5", llm_provider="bedrock"
+    )
 
 
 @pytest.mark.asyncio
@@ -4261,3 +4263,31 @@ def test_bedrock_converse_messages_pt_lone_content_less_user_turn_adds_no_block_
         )
         == []
     )
+
+
+def test_anthropic_messages_pt_drops_nameless_tool_call_and_its_result():
+    messages = [
+        {"role": "user", "content": "Weather in Paris?"},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_paris",
+                    "type": "function",
+                    "function": {"name": "get_weather", "arguments": '{"city": "Paris"}'},
+                },
+                {"id": "call_frag", "type": "function", "function": {"name": "", "arguments": "{}"}},
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_paris", "content": "sunny"},
+        {"role": "tool", "tool_call_id": "call_frag", "content": "Tool not found"},
+    ]
+
+    out = anthropic_messages_pt(messages=messages, model="claude-haiku-5-5", llm_provider="vertex_ai")
+
+    assert [[(b["type"], b.get("id") or b.get("tool_use_id")) for b in m["content"]] for m in out[1:]] == [
+        [("tool_use", "call_paris")],
+        [("tool_result", "call_paris")],
+    ]
+    assert out[1]["content"][0]["name"] == "get_weather"

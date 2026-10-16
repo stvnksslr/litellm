@@ -220,6 +220,92 @@ async def test_anthropic_messages_sanitizes_tool_use_ids_before_dispatch():
     assert msgs[0]["content"][0]["id"] == "functions.Bash:0"
 
 
+def _poisoned_history():
+    return [
+        {"role": "user", "content": "Weather in Paris and Tokyo?"},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "call_paris", "name": "get_weather", "input": {"city": "Paris"}},
+                {"type": "text", "text": "\n"},
+                {"type": "tool_use", "id": "c282a919-ae95-48be-8c11-4749cde2a63e", "name": "", "input": {}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "call_paris", "content": "sunny"},
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "c282a919-ae95-48be-8c11-4749cde2a63e",
+                    "content": "Tool not found",
+                    "is_error": True,
+                },
+            ],
+        },
+    ]
+
+
+_HEALED_HISTORY: Final = [
+    {"role": "user", "content": "Weather in Paris and Tokyo?"},
+    {
+        "role": "assistant",
+        "content": [{"type": "tool_use", "id": "call_paris", "name": "get_weather", "input": {"city": "Paris"}}],
+    },
+    {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_paris", "content": "sunny"}]},
+]
+
+
+@pytest.mark.asyncio
+async def test_anthropic_messages_heals_nameless_tool_use_before_dispatch():
+    from litellm.llms.anthropic.pass_through.messages import handler
+
+    msgs = _poisoned_history()
+    captured = {}
+
+    def fake_handler(*args, **kwargs):
+        captured["messages"] = kwargs.get("messages")
+        return "stub"
+
+    fake_loop = MagicMock()
+    fake_loop.run_in_executor = lambda _e, func: _async_return(func())
+
+    with (
+        patch.object(handler, "anthropic_messages_handler", side_effect=fake_handler),
+        patch("asyncio.get_event_loop", return_value=fake_loop),
+    ):
+        await handler.anthropic_messages(
+            max_tokens=100,
+            messages=msgs,
+            model="vertex_ai/claude-haiku-5-5",
+            custom_llm_provider="vertex_ai",
+            api_key="k",
+        )
+
+    assert captured["messages"] == _HEALED_HISTORY
+    assert msgs == _poisoned_history()
+
+
+def test_sync_anthropic_messages_handler_heals_nameless_tool_use_before_dispatch():
+    from litellm.llms.anthropic.pass_through.messages import handler
+
+    captured = {}
+
+    def fake_base_handler(*args, **kwargs):
+        captured["messages"] = kwargs.get("messages")
+        return "stub"
+
+    with patch.object(handler.base_llm_http_handler, "anthropic_messages_handler", side_effect=fake_base_handler):
+        handler.anthropic_messages_handler(
+            max_tokens=10,
+            messages=_poisoned_history(),
+            model="anthropic/claude-haiku-5-5",
+            custom_llm_provider="anthropic",
+        )
+
+    assert captured["messages"] == _HEALED_HISTORY
+
+
 async def _async_return(value):
     return value
 
@@ -1627,6 +1713,7 @@ async def test_provider_messages_api_base_env_is_not_shadowed_by_the_chat_defaul
 
     assert seen_urls == ["https://deepseek.internal.example/anthropic/v1/messages"]
 
+
 @pytest.mark.asyncio
 async def test_anthropic_messages_forwards_safeguards_and_unknown_beta_to_anthropic():
     """Shapes are what Claude Code 2.1.278 sends and api.anthropic.com returns, captured 2026-09-21."""
@@ -1741,7 +1828,9 @@ def _claude_code_auto_mode_request() -> tuple[list[dict[str, object]], list[dict
     return safeguards, safeguard_results
 
 
-def _upstream_answering_with(safeguard_results: list[dict[str, object]], captured: dict[str, object]) -> AsyncHTTPHandler:
+def _upstream_answering_with(
+    safeguard_results: list[dict[str, object]], captured: dict[str, object]
+) -> AsyncHTTPHandler:
     def upstream_records_the_request(request: httpx.Request) -> httpx.Response:
         captured["body"] = json.loads(request.content)
         captured["anthropic-beta"] = request.headers.get("anthropic-beta")
@@ -1767,7 +1856,9 @@ def _upstream_answering_with(safeguard_results: list[dict[str, object]], capture
 
 
 _CLIENT_BETA_HEADERS: Final = (
-    pytest.param({"anthropic-beta": "dangerous-tool-use-2026-09-03,interleaved-thinking-2025-05-14"}, id="client_sends_beta"),
+    pytest.param(
+        {"anthropic-beta": "dangerous-tool-use-2026-09-03,interleaved-thinking-2025-05-14"}, id="client_sends_beta"
+    ),
     pytest.param({"anthropic-beta": "interleaved-thinking-2025-05-14"}, id="client_omits_beta"),
     pytest.param({}, id="client_sends_no_beta_header"),
 )

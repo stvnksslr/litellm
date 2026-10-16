@@ -436,3 +436,35 @@ async def test_async_stream_whitespace_text_between_tool_args_does_not_split_too
     wrapper = AnthropicStreamWrapper(completion_stream=stream(), model="test-model")
 
     assert _tool_blocks(await _collect_events_async(wrapper)) == _EXPECTED_QWEN_TOOL_BLOCKS
+
+
+def test_repaired_pre_fix_history_matches_what_the_fixed_stream_emits():
+    from litellm.llms.anthropic.common_utils import (
+        repair_nameless_tool_use_blocks_in_anthropic_messages,
+        sanitize_tool_use_ids_in_anthropic_messages,
+        strip_empty_content_blocks_from_anthropic_messages,
+    )
+
+    stored_before_fix = [
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "call_paris", "name": "get_weather", "input": {"city": "Paris"}},
+                {"type": "text", "text": "\n"},
+                {"type": "tool_use", "id": "call_tokyo", "name": "get_weather", "input": {"city": "Tokyo"}},
+                {"type": "text", "text": "\n"},
+                {"type": "tool_use", "id": "c282a919-ae95-48be-8c11-4749cde2a63e", "name": "", "input": {}},
+            ],
+        }
+    ]
+    healed = repair_nameless_tool_use_blocks_in_anthropic_messages(
+        sanitize_tool_use_ids_in_anthropic_messages(
+            strip_empty_content_blocks_from_anthropic_messages(stored_before_fix)
+        )
+    )
+    fixed_stream = AnthropicStreamWrapper(completion_stream=iter(_qwen_parallel_tool_call_chunks()), model="test-model")
+
+    assert [(b["type"], b["name"], b["input"]) for b in healed[0]["content"]] == [
+        (block_type, name, json.loads(args))
+        for block_type, name, args in _tool_blocks(_collect_events_sync(fixed_stream))
+    ]

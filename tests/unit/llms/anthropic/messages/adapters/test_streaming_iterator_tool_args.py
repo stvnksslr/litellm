@@ -716,3 +716,69 @@ def test_one_call_split_across_chunks_is_unchanged(use_async):
     assert json.loads(blocks[0]["json"]) == {"command": "ls -d /tmp"}
     deltas = [event for event in events if event.get("type") == "content_block_delta"]
     assert [delta["delta"]["partial_json"] for delta in deltas] == ['{"command": ', '"ls -d /tmp"}']
+
+
+def _qwen_parallel_tool_call_chunks() -> list[MagicMock]:
+    def tool(index: int, args: str, call_id: str | None = None, name: str | None = None) -> MagicMock:
+        return _make_chunk(
+            Delta(
+                content=None,
+                role="assistant",
+                tool_calls=[
+                    ChatCompletionDeltaToolCall(
+                        id=call_id, function=Function(name=name, arguments=args), type="function", index=index
+                    )
+                ],
+            )
+        )
+
+    def text(content: str) -> MagicMock:
+        return _make_chunk(Delta(content=content, role="assistant", tool_calls=None))
+
+    return [
+        tool(0, "", "call_paris", "get_weather"),
+        tool(0, '{"city": "Paris"'),
+        tool(0, "}"),
+        text("\n"),
+        tool(1, "", "call_tokyo", "get_weather"),
+        tool(1, '{"city": "Tokyo"'),
+        text("\n"),
+        tool(1, "}"),
+        _make_chunk(Delta(content=None, role="assistant", tool_calls=None), finish_reason="tool_calls"),
+    ]
+
+
+def _tool_blocks(events: list[dict]) -> list[tuple]:
+    starts = {e["index"]: e["content_block"] for e in events if e.get("type") == "content_block_start"}
+    args = {
+        index: "".join(
+            e["delta"].get("partial_json", e["delta"].get("text", ""))
+            for e in events
+            if e.get("type") == "content_block_delta" and e["index"] == index
+        )
+        for index in starts
+    }
+    return [(block["type"], block.get("name"), args[index]) for index, block in sorted(starts.items())]
+
+
+_EXPECTED_QWEN_TOOL_BLOCKS = [
+    ("tool_use", "get_weather", '{"city": "Paris"}'),
+    ("tool_use", "get_weather", '{"city": "Tokyo"}'),
+]
+
+
+def test_sync_stream_whitespace_text_between_tool_args_does_not_split_tool_block():
+    wrapper = AnthropicStreamWrapper(completion_stream=iter(_qwen_parallel_tool_call_chunks()), model="test-model")
+
+    assert _tool_blocks(_collect_events_sync(wrapper)) == _EXPECTED_QWEN_TOOL_BLOCKS
+
+
+@pytest.mark.asyncio
+async def test_async_stream_whitespace_text_between_tool_args_does_not_split_tool_block():
+    async def stream():
+        for chunk in _qwen_parallel_tool_call_chunks():
+            yield chunk
+
+    wrapper = AnthropicStreamWrapper(completion_stream=stream(), model="test-model")
+
+    assert _tool_blocks(await _collect_events_async(wrapper)) == _EXPECTED_QWEN_TOOL_BLOCKS

@@ -587,6 +587,10 @@ class AnthropicStreamWrapper(AdapterCompletionStreamWrapper):
                         return self.chunk_queue.popleft()
                     continue
 
+                if self.current_content_block_type == "tool_use" and self._is_blank_delta(
+                    chunk, ignore_whitespace_text=True
+                ):
+                    continue
                 should_start_new_block = self._should_start_new_content_block(chunk)
                 is_opening_first_block = self.sent_content_block_start is False
                 if is_opening_first_block and self._is_blank_delta(chunk):
@@ -822,6 +826,10 @@ class AnthropicStreamWrapper(AdapterCompletionStreamWrapper):
                         return self.chunk_queue.popleft()
                     continue
 
+                if self.current_content_block_type == "tool_use" and self._is_blank_delta(
+                    chunk, ignore_whitespace_text=True
+                ):
+                    continue
                 should_start_new_block = self._should_start_new_content_block(chunk)
                 is_opening_first_block = self.sent_content_block_start is False
                 if is_opening_first_block and self._is_blank_delta(chunk):
@@ -1107,7 +1115,7 @@ class AnthropicStreamWrapper(AdapterCompletionStreamWrapper):
         return bool(delta.get(_delta_payload_field(delta_type)))
 
     @staticmethod
-    def _is_blank_delta(chunk: "ModelResponseStream") -> bool:
+    def _is_blank_delta(chunk: "ModelResponseStream", ignore_whitespace_text: bool = False) -> bool:
         from litellm.llms.anthropic.common_utils import is_empty_unsigned_thinking_block
         from litellm.llms.anthropic.pass_through.messages.utils import (
             openai_chat_refusal_text,
@@ -1119,7 +1127,8 @@ class AnthropicStreamWrapper(AdapterCompletionStreamWrapper):
         delta: Final = choice.delta
         if getattr(delta, "tool_calls", None):
             return False
-        if getattr(delta, "content", None):
+        content: Final = getattr(delta, "content", None)
+        if content and not (ignore_whitespace_text and not content.strip()):
             return False
         if openai_chat_refusal_text(delta):
             return False

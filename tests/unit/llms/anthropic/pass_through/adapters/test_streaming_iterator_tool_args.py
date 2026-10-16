@@ -129,15 +129,13 @@ async def test_async_stream_emits_input_json_delta_for_bundled_tool_args():
         ):
             input_json_delta_idx = i
 
-    assert (
-        tool_start_idx is not None
-    ), f"Expected content_block_start with type=tool_use; events: {event_types}"
-    assert (
-        input_json_delta_idx is not None
-    ), f"Expected content_block_delta with input_json_delta; events: {event_types}"
-    assert (
-        input_json_delta_idx == tool_start_idx + 1
-    ), "input_json_delta should immediately follow the tool_use content_block_start"
+    assert tool_start_idx is not None, f"Expected content_block_start with type=tool_use; events: {event_types}"
+    assert input_json_delta_idx is not None, (
+        f"Expected content_block_delta with input_json_delta; events: {event_types}"
+    )
+    assert input_json_delta_idx == tool_start_idx + 1, (
+        "input_json_delta should immediately follow the tool_use content_block_start"
+    )
 
     # Verify the delta carries the tool arguments
     delta_event = events[input_json_delta_idx]
@@ -230,8 +228,7 @@ async def test_async_stream_no_extra_delta_when_tool_args_empty():
         and e["delta"].get("type") == "input_json_delta"
     ]
     assert len(input_json_deltas) == 1, (
-        f"Expected exactly 1 input_json_delta (from the follow-up chunk), "
-        f"got {len(input_json_deltas)}"
+        f"Expected exactly 1 input_json_delta (from the follow-up chunk), got {len(input_json_deltas)}"
     )
     assert input_json_deltas[0]["delta"]["partial_json"] == '{"location": "NYC"}'
 
@@ -291,15 +288,13 @@ def test_sync_stream_emits_input_json_delta_for_bundled_tool_args():
         ):
             input_json_delta_idx = i
 
-    assert (
-        tool_start_idx is not None
-    ), f"Expected content_block_start with type=tool_use; events: {event_types}"
-    assert (
-        input_json_delta_idx is not None
-    ), f"Expected content_block_delta with input_json_delta; events: {event_types}"
-    assert (
-        input_json_delta_idx == tool_start_idx + 1
-    ), "input_json_delta should immediately follow the tool_use content_block_start"
+    assert tool_start_idx is not None, f"Expected content_block_start with type=tool_use; events: {event_types}"
+    assert input_json_delta_idx is not None, (
+        f"Expected content_block_delta with input_json_delta; events: {event_types}"
+    )
+    assert input_json_delta_idx == tool_start_idx + 1, (
+        "input_json_delta should immediately follow the tool_use content_block_start"
+    )
     assert json.loads(events[input_json_delta_idx]["delta"]["partial_json"]) == {"location": "Boston"}
 
 
@@ -343,9 +338,7 @@ def test_sync_stream_no_extra_delta_when_tool_args_empty():
     )
 
     wrapper = AnthropicStreamWrapper(
-        completion_stream=iter(
-            [text_chunk, tool_name_chunk, tool_args_chunk, finish_chunk]
-        ),
+        completion_stream=iter([text_chunk, tool_name_chunk, tool_args_chunk, finish_chunk]),
         model="test-model",
     )
 
@@ -374,7 +367,72 @@ def test_sync_stream_no_extra_delta_when_tool_args_empty():
         and e["delta"].get("type") == "input_json_delta"
     ]
     assert len(input_json_deltas) == 1, (
-        f"Expected exactly 1 input_json_delta (from the follow-up chunk), "
-        f"got {len(input_json_deltas)}"
+        f"Expected exactly 1 input_json_delta (from the follow-up chunk), got {len(input_json_deltas)}"
     )
     assert input_json_deltas[0]["delta"]["partial_json"] == '{"location": "NYC"}'
+
+
+def _qwen_parallel_tool_call_chunks() -> list[MagicMock]:
+    def tool(index: int, args: str, call_id: str | None = None, name: str | None = None) -> MagicMock:
+        return _make_chunk(
+            Delta(
+                content=None,
+                role="assistant",
+                tool_calls=[
+                    ChatCompletionDeltaToolCall(
+                        id=call_id, function=Function(name=name, arguments=args), type="function", index=index
+                    )
+                ],
+            )
+        )
+
+    def text(content: str) -> MagicMock:
+        return _make_chunk(Delta(content=content, role="assistant", tool_calls=None))
+
+    return [
+        tool(0, "", "call_paris", "get_weather"),
+        tool(0, '{"city": "Paris"'),
+        tool(0, "}"),
+        text("\n"),
+        tool(1, "", "call_tokyo", "get_weather"),
+        tool(1, '{"city": "Tokyo"'),
+        text("\n"),
+        tool(1, "}"),
+        _make_chunk(Delta(content=None, role="assistant", tool_calls=None), finish_reason="tool_calls"),
+    ]
+
+
+def _tool_blocks(events: list[dict]) -> list[tuple]:
+    starts = {e["index"]: e["content_block"] for e in events if e.get("type") == "content_block_start"}
+    args = {
+        index: "".join(
+            e["delta"].get("partial_json", e["delta"].get("text", ""))
+            for e in events
+            if e.get("type") == "content_block_delta" and e["index"] == index
+        )
+        for index in starts
+    }
+    return [(block["type"], block.get("name"), args[index]) for index, block in sorted(starts.items())]
+
+
+_EXPECTED_QWEN_TOOL_BLOCKS = [
+    ("tool_use", "get_weather", '{"city": "Paris"}'),
+    ("tool_use", "get_weather", '{"city": "Tokyo"}'),
+]
+
+
+def test_sync_stream_whitespace_text_between_tool_args_does_not_split_tool_block():
+    wrapper = AnthropicStreamWrapper(completion_stream=iter(_qwen_parallel_tool_call_chunks()), model="test-model")
+
+    assert _tool_blocks(_collect_events_sync(wrapper)) == _EXPECTED_QWEN_TOOL_BLOCKS
+
+
+@pytest.mark.asyncio
+async def test_async_stream_whitespace_text_between_tool_args_does_not_split_tool_block():
+    async def stream():
+        for chunk in _qwen_parallel_tool_call_chunks():
+            yield chunk
+
+    wrapper = AnthropicStreamWrapper(completion_stream=stream(), model="test-model")
+
+    assert _tool_blocks(await _collect_events_async(wrapper)) == _EXPECTED_QWEN_TOOL_BLOCKS

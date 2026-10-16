@@ -27,6 +27,7 @@ Line numbers are as of the current `main-pitchbook` tip. For modified files they
 - `litellm/types/llms/anthropic.py` L779-L803: `is_anthropic_hosted_tool_type` and `is_anthropic_web_search_tool` predicates, used by the bridge handlers, the Responses adapter and shadow eval (the chat adapter keeps upstream's `_is_web_search_tool`)
 - `litellm/integrations/shadow_eval_logger.py` L43, L406-L408: hosted web search detection also matches the raw Anthropic tool via `is_anthropic_web_search_tool`, since the bridge only emits `web_search_options` for models that support it and shadow eval would otherwise sample and bill those requests
 - `litellm/litellm_core_utils/streaming_handler.py` L2072-L2077: guard choice-less chunks in `response_uptil_now` accumulation on the non-aiohttp async path. No fork test covers it
+- `litellm/llms/anthropic/pass_through/adapters/streaming_iterator.py` L590-L593, L829-L832, L1118, L1130-L1131: while a tool_use block is open, skip whitespace-only text chunks. Qwen streams `"\n"` between parallel tool calls before the previous call's closing `}`, which used to open a nameless tool_use that every later Claude turn on that history rejects
 - `litellm/llms/openai_like/chat/handler.py` L19-L22, L70-L72, L110-L112: stream via `OpenAIChatCompletionStreamingHandler` so `reasoning_content` deltas and mid-stream errors surface
 
 ## GPT-5.6 family enablement

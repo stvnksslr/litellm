@@ -1936,6 +1936,93 @@ def sanitize_tool_use_ids_in_anthropic_messages(messages: Sequence[object]) -> l
     return out
 
 
+UNKNOWN_TOOL_NAME: Final = "unknown_tool"
+
+_JSON_OBJECT_ADAPTER: Final = TypeAdapter(Mapping[str, object])
+_CONTENT_BLOCKS_ADAPTER: Final = TypeAdapter(tuple[Mapping[str, object], ...])
+
+
+@dataclass(frozen=True, slots=True)
+class _ReplayedTurn:
+    message: Mapping[str, object]
+    blocks: tuple[Mapping[str, object], ...]
+
+
+def _replayed_turn(message: object, role: str) -> _ReplayedTurn | None:
+    try:
+        parsed: Final = _JSON_OBJECT_ADAPTER.validate_python(message)
+        if parsed.get("role") != role:
+            return None
+        return _ReplayedTurn(parsed, _CONTENT_BLOCKS_ADAPTER.validate_python(parsed.get("content")))
+    except ValidationError:
+        return None
+
+
+def _is_nameless_tool_use(block: Mapping[str, object]) -> bool:
+    name: Final = block.get("name")
+    return block.get("type") == "tool_use" and (not isinstance(name, str) or not name.strip())
+
+
+def _is_tool_result_for(block: Mapping[str, object], tool_use_ids: frozenset[object]) -> bool:
+    return block.get("type") == "tool_result" and block.get("tool_use_id") in tool_use_ids
+
+
+def _poisoned_assistant_turn(message: object) -> _ReplayedTurn | None:
+    turn: Final = _replayed_turn(message, "assistant")
+    return turn if turn is not None and any(_is_nameless_tool_use(b) for b in turn.blocks) else None
+
+
+def _repair_nameless_turn(assistant: _ReplayedTurn, following: object) -> tuple[Mapping[str, object], object]:
+    fragment_ids: Final = frozenset(b.get("id") for b in assistant.blocks if _is_nameless_tool_use(b))
+    kept_blocks: Final = [b for b in assistant.blocks if not _is_nameless_tool_use(b)]
+    user: Final = _replayed_turn(following, "user")
+    kept_results: Final = [] if user is None else [b for b in user.blocks if not _is_tool_result_for(b, fragment_ids)]
+    if not kept_blocks or (user is not None and user.blocks and not kept_results):
+        named: Final = [{**b, "name": UNKNOWN_TOOL_NAME} if _is_nameless_tool_use(b) else b for b in assistant.blocks]
+        return {**assistant.message, "content": named}, following
+    repaired_following: Final = (
+        following
+        if user is None or len(kept_results) == len(user.blocks)
+        else {**user.message, "content": kept_results}
+    )
+    return {**assistant.message, "content": kept_blocks}, repaired_following
+
+
+def _repair_nameless_tool_use_blocks(items: Sequence[object]) -> Sequence[object]:
+    poisoned: Final = MappingProxyType(
+        {i: turn for i, turn in enumerate(_poisoned_assistant_turn(m) for m in items) if turn is not None}
+    )
+    if not poisoned:
+        return items
+
+    def following(i: int) -> object:
+        return items[i + 1] if i + 1 < len(items) else None
+
+    repaired: Final = MappingProxyType({i: _repair_nameless_turn(turn, following(i)) for i, turn in poisoned.items()})
+    replacements: Final = MappingProxyType(
+        {
+            **{i + 1: user for i, (_, user) in repaired.items() if user is not following(i)},
+            **{i: assistant for i, (assistant, _) in repaired.items()},
+        }
+    )
+    return [replacements.get(i, m) for i, m in enumerate(items)]
+
+
+def repair_nameless_tool_use_blocks_in_anthropic_messages(
+    messages: list[Any],  # mutable-ok: same list contract as the sibling sanitizers the handler chains
+) -> list[Any]:  # mutable-ok: same list contract as the sibling sanitizers the handler chains
+    """
+    Heal histories carrying ``tool_use`` blocks with an empty or missing name,
+    which Anthropic rejects with ``tool_use.name: String should have at least
+    1 character``. Such a block is a stray argument fragment a bridged model
+    streamed after another call, not a real call, so it is dropped together
+    with its ``tool_result`` in the next user message. When dropping would
+    empty either message it is kept under ``UNKNOWN_TOOL_NAME`` instead.
+    Messages that need no repair are returned as the same objects.
+    """
+    return list(_repair_nameless_tool_use_blocks(messages))
+
+
 class _ReplayedSearchQuery(LiteLLMBaseModel):
     model_config = ConfigDict(extra="allow")
 

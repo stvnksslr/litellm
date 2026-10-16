@@ -7871,3 +7871,31 @@ def test_anthropic_messages_pt_merges_a_long_assistant_run_in_linear_time():
     growth: Final = _merged_assistant_run_cost(4000) / _merged_assistant_run_cost(1000)
 
     assert growth < 8.0, f"cost grew {growth:.1f}x for 4x the assistant run"
+
+
+def test_anthropic_messages_pt_drops_nameless_tool_call_and_its_result():
+    messages = [
+        {"role": "user", "content": "Weather in Paris?"},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_paris",
+                    "type": "function",
+                    "function": {"name": "get_weather", "arguments": '{"city": "Paris"}'},
+                },
+                {"id": "call_frag", "type": "function", "function": {"name": "", "arguments": "{}"}},
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_paris", "content": "sunny"},
+        {"role": "tool", "tool_call_id": "call_frag", "content": "Tool not found"},
+    ]
+
+    out = anthropic_messages_pt(messages=messages, model="claude-haiku-5-5", llm_provider="vertex_ai")
+
+    assert [[(b["type"], b.get("id") or b.get("tool_use_id")) for b in m["content"]] for m in out[1:]] == [
+        [("tool_use", "call_paris")],
+        [("tool_result", "call_paris")],
+    ]
+    assert out[1]["content"][0]["name"] == "get_weather"

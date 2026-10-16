@@ -28,6 +28,9 @@ Line numbers are as of the current `main-pitchbook` tip. For modified files they
 - `litellm/integrations/shadow_eval_logger.py` L43, L406-L408: hosted web search detection also matches the raw Anthropic tool via `is_anthropic_web_search_tool`, since the bridge only emits `web_search_options` for models that support it and shadow eval would otherwise sample and bill those requests
 - `litellm/litellm_core_utils/streaming_handler.py` L2072-L2077: guard choice-less chunks in `response_uptil_now` accumulation on the non-aiohttp async path. No fork test covers it
 - `litellm/llms/anthropic/pass_through/adapters/streaming_iterator.py` L590-L593, L829-L832, L1118, L1130-L1131: while a tool_use block is open, skip whitespace-only text chunks. Qwen streams `"\n"` between parallel tool calls before the previous call's closing `}`, which used to open a nameless tool_use that every later Claude turn on that history rejects
+- `litellm/llms/anthropic/common_utils.py` L1590-L1676: `repair_nameless_tool_use_blocks_in_anthropic_messages` heals histories already poisoned by that bug. A nameless tool_use is dropped with its tool_result in the next user turn, or renamed `unknown_tool` when dropping would empty either message
+- `litellm/llms/anthropic/pass_through/messages/handler.py` L20, L329-L331, L528-L530: run the repair after tool_use id normalization in both sanitize pipelines, so native Vertex/Anthropic pass-through and the bridges all get it
+- `litellm/litellm_core_utils/prompt_templates/factory.py` L2792-L2796: `anthropic_messages_pt` runs the same repair, covering OpenAI-format clients replaying a tool call with an empty `function.name`
 - `litellm/llms/openai_like/chat/handler.py` L19-L22, L70-L72, L110-L112: stream via `OpenAIChatCompletionStreamingHandler` so `reasoning_content` deltas and mid-stream errors surface
 
 ## GPT-5.6 family enablement

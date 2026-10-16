@@ -4211,3 +4211,214 @@ def test_anthropic_error_frame_exception_classes_an_overloaded_frame_as_internal
     error: Final = anthropic_error_frame_exception("overloaded_error", "Overloaded", 503, "claude-sonnet-4-5")
 
     assert type(error) is litellm.InternalServerError
+
+
+def _tool_use(tool_id: str, name: object = "get_weather") -> dict:
+    return {"type": "tool_use", "id": tool_id, "name": name, "input": {"city": tool_id}}
+
+
+def _fragment(tool_id: str) -> dict:
+    return {"type": "tool_use", "id": tool_id, "name": "", "input": {}}
+
+
+def _tool_result(tool_id: str, is_error: bool = False) -> dict:
+    return {"type": "tool_result", "tool_use_id": tool_id, "content": f"result {tool_id}", "is_error": is_error}
+
+
+def _assistant(*blocks: dict) -> dict:
+    return {"role": "assistant", "content": list(blocks)}
+
+
+def _user(*blocks: dict) -> dict:
+    return {"role": "user", "content": list(blocks)}
+
+
+_TEXT_HI: Final = {"type": "text", "text": "Checking the weather"}
+_FRAGMENT_ID: Final = "c282a919-ae95-48be-8c11-4749cde2a63e"
+
+_NAMELESS_TOOL_USE_REPAIR_CASES: Final = {
+    "streamed_fragment_after_parallel_calls": (
+        [
+            {"role": "user", "content": "Weather in Paris and Tokyo?"},
+            _assistant(_tool_use("call_paris"), _tool_use("call_tokyo"), _fragment(_FRAGMENT_ID)),
+            _user(_tool_result("call_paris"), _tool_result("call_tokyo"), _tool_result(_FRAGMENT_ID, is_error=True)),
+            {"role": "assistant", "content": "Sunny in both."},
+        ],
+        [
+            {"role": "user", "content": "Weather in Paris and Tokyo?"},
+            _assistant(_tool_use("call_paris"), _tool_use("call_tokyo")),
+            _user(_tool_result("call_paris"), _tool_result("call_tokyo")),
+            {"role": "assistant", "content": "Sunny in both."},
+        ],
+    ),
+    "fragment_between_calls_keeps_order": (
+        [
+            _assistant(_TEXT_HI, _tool_use("a"), _fragment("frag"), _tool_use("c")),
+            _user(_tool_result("a"), _tool_result("frag", is_error=True), _tool_result("c")),
+        ],
+        [
+            _assistant(_TEXT_HI, _tool_use("a"), _tool_use("c")),
+            _user(_tool_result("a"), _tool_result("c")),
+        ],
+    ),
+    "fragment_never_executed_by_client": (
+        [_assistant(_tool_use("a"), _fragment("frag")), _user(_tool_result("a"))],
+        [_assistant(_tool_use("a")), _user(_tool_result("a"))],
+    ),
+    "following_user_text_survives_result_removal": (
+        [
+            _assistant(_tool_use("a"), _fragment("frag")),
+            _user(_tool_result("a"), _tool_result("frag"), {"type": "text", "text": "keep going"}),
+        ],
+        [
+            _assistant(_tool_use("a")),
+            _user(_tool_result("a"), {"type": "text", "text": "keep going"}),
+        ],
+    ),
+    "fragment_in_final_assistant_turn": (
+        [{"role": "user", "content": "hi"}, _assistant(_TEXT_HI, _fragment("frag"))],
+        [{"role": "user", "content": "hi"}, _assistant(_TEXT_HI)],
+    ),
+    "fragment_is_whole_turn_falls_back_to_placeholder": (
+        [_assistant(_fragment("frag")), _user(_tool_result("frag"))],
+        [_assistant(_tool_use("frag", name="unknown_tool") | {"input": {}}), _user(_tool_result("frag"))],
+    ),
+    "dropping_result_would_empty_user_turn_falls_back_to_placeholder": (
+        [_assistant(_TEXT_HI, _fragment("frag")), _user(_tool_result("frag"))],
+        [
+            _assistant(_TEXT_HI, _tool_use("frag", name="unknown_tool") | {"input": {}}),
+            _user(_tool_result("frag")),
+        ],
+    ),
+    "several_poisoned_turns_in_long_history": (
+        [
+            {"role": "user", "content": "start"},
+            _assistant(_tool_use("a1"), _fragment("f1")),
+            _user(_tool_result("a1"), _tool_result("f1")),
+            _assistant(_tool_use("b1")),
+            _user(_tool_result("b1")),
+            _assistant(_tool_use("a2"), _fragment("f2"), _fragment("f3")),
+            _user(_tool_result("a2"), _tool_result("f2"), _tool_result("f3")),
+        ],
+        [
+            {"role": "user", "content": "start"},
+            _assistant(_tool_use("a1")),
+            _user(_tool_result("a1")),
+            _assistant(_tool_use("b1")),
+            _user(_tool_result("b1")),
+            _assistant(_tool_use("a2")),
+            _user(_tool_result("a2")),
+        ],
+    ),
+}
+
+_HEALTHY_HISTORY: Final = [
+    {"role": "user", "content": "hi"},
+    _assistant(_TEXT_HI, _tool_use("a")),
+    _user(_tool_result("a")),
+    _assistant(
+        {"type": "server_tool_use", "id": "srvtoolu_1", "name": "web_search", "input": {"query": "q"}},
+        {"type": "text", "text": "done"},
+    ),
+    {"role": "assistant", "content": "plain string"},
+]
+
+
+@pytest.mark.parametrize(
+    ("messages", "expected"),
+    _NAMELESS_TOOL_USE_REPAIR_CASES.values(),
+    ids=_NAMELESS_TOOL_USE_REPAIR_CASES.keys(),
+)
+def test_repair_nameless_tool_use_blocks(messages: list, expected: list) -> None:
+    from litellm.llms.anthropic.common_utils import repair_nameless_tool_use_blocks_in_anthropic_messages
+
+    assert repair_nameless_tool_use_blocks_in_anthropic_messages(messages) == expected
+
+
+@pytest.mark.parametrize("name", [None, "", "   ", 42, "<missing>"])
+def test_repair_treats_every_unusable_name_as_nameless(name: object) -> None:
+    from litellm.llms.anthropic.common_utils import repair_nameless_tool_use_blocks_in_anthropic_messages
+
+    fragment = {"type": "tool_use", "id": "frag", "input": {}} | ({} if name == "<missing>" else {"name": name})
+    messages = [_assistant(_tool_use("a"), fragment), _user(_tool_result("a"), _tool_result("frag"))]
+
+    assert repair_nameless_tool_use_blocks_in_anthropic_messages(messages) == [
+        _assistant(_tool_use("a")),
+        _user(_tool_result("a")),
+    ]
+
+
+def test_repair_returns_healthy_history_untouched() -> None:
+    from litellm.llms.anthropic.common_utils import repair_nameless_tool_use_blocks_in_anthropic_messages
+
+    out = repair_nameless_tool_use_blocks_in_anthropic_messages(_HEALTHY_HISTORY)
+
+    assert out == _HEALTHY_HISTORY
+    assert all(after is before for after, before in zip(out, _HEALTHY_HISTORY, strict=True))
+
+
+def test_repair_leaves_untouched_turns_of_poisoned_history_as_same_objects() -> None:
+    from litellm.llms.anthropic.common_utils import repair_nameless_tool_use_blocks_in_anthropic_messages
+
+    messages, _ = _NAMELESS_TOOL_USE_REPAIR_CASES["several_poisoned_turns_in_long_history"]
+    out = repair_nameless_tool_use_blocks_in_anthropic_messages(messages)
+
+    assert [after is before for after, before in zip(out, messages, strict=True)] == [
+        True,
+        False,
+        False,
+        True,
+        True,
+        False,
+        False,
+    ]
+
+
+def test_repair_pairs_fragment_results_after_tool_use_id_normalization() -> None:
+    from litellm.llms.anthropic.common_utils import (
+        repair_nameless_tool_use_blocks_in_anthropic_messages,
+        sanitize_tool_use_ids_in_anthropic_messages,
+    )
+
+    messages = [
+        _assistant(_tool_use("functions.Bash:0"), _fragment("functions.Bash:1")),
+        _user(_tool_result("functions.Bash:0"), _tool_result("functions.Bash:1")),
+    ]
+
+    out = repair_nameless_tool_use_blocks_in_anthropic_messages(sanitize_tool_use_ids_in_anthropic_messages(messages))
+
+    assert out == [
+        _assistant(_tool_use("functions.Bash:0") | {"id": "functions_Bash_0"}),
+        _user(_tool_result("functions.Bash:0") | {"tool_use_id": "functions_Bash_0"}),
+    ]
+
+
+def _assert_anthropic_accepts_tool_history(messages: list) -> None:
+    turns = [m for m in messages if isinstance(m["content"], list)]
+    assert all(m["content"] for m in turns)
+    tool_uses = [b for m in turns for b in m["content"] if b["type"] == "tool_use"]
+    assert all(isinstance(b["name"], str) and b["name"].strip() for b in tool_uses)
+    for previous, message in zip(messages, messages[1:]):
+        result_ids = {
+            b["tool_use_id"] for b in message["content"] if isinstance(b, dict) and b["type"] == "tool_result"
+        }
+        call_ids = {b["id"] for b in previous["content"] if isinstance(b, dict) and b["type"] == "tool_use"}
+        assert result_ids <= call_ids
+
+
+@pytest.mark.parametrize(
+    "messages",
+    [messages for messages, _ in _NAMELESS_TOOL_USE_REPAIR_CASES.values()] + [_HEALTHY_HISTORY],
+    ids=[*_NAMELESS_TOOL_USE_REPAIR_CASES.keys(), "healthy"],
+)
+def test_repair_output_is_valid_idempotent_and_never_mutates_input(messages: list) -> None:
+    import copy
+
+    from litellm.llms.anthropic.common_utils import repair_nameless_tool_use_blocks_in_anthropic_messages
+
+    snapshot = copy.deepcopy(messages)
+    out = repair_nameless_tool_use_blocks_in_anthropic_messages(messages)
+
+    assert messages == snapshot
+    _assert_anthropic_accepts_tool_history(out)
+    assert repair_nameless_tool_use_blocks_in_anthropic_messages(out) == out

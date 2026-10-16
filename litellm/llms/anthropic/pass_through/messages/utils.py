@@ -7,6 +7,7 @@ from pydantic import JsonValue
 from litellm.integrations.anthropic_cache_control_hook import AnthropicCacheControlHook
 from litellm.llms.anthropic.common_utils import (
     flatten_unencrypted_web_search_results_in_anthropic_messages,
+    repair_nameless_tool_use_blocks_in_anthropic_messages,
     sanitize_tool_use_ids_in_anthropic_messages,
     strip_empty_content_blocks_from_anthropic_messages,
 )
@@ -143,7 +144,9 @@ def prepare_native_messages(
         messages
         if presanitized
         else flatten_unencrypted_web_search_results_in_anthropic_messages(
-            sanitize_tool_use_ids_in_anthropic_messages(strip_empty_content_blocks_from_anthropic_messages(messages))
+            repair_nameless_tool_use_blocks_in_anthropic_messages(
+                sanitize_tool_use_ids_in_anthropic_messages(strip_empty_content_blocks_from_anthropic_messages(messages))
+            )
         )
     )
     return cast(  # cast-ok: legacy normalizers and injection preserve the JSON message and system shapes

@@ -82,7 +82,7 @@ class TestVertexAIDeciderPassthroughConfig:
         )
 
         config = VertexAIDeciderPassthroughConfig()
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="missing 'api_base'"):
             config.get_complete_url(
                 api_base=None,
                 api_key=None,

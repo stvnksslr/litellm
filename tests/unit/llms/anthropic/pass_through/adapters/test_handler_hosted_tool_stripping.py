@@ -167,7 +167,7 @@ def test_claude_code_tool_search_request_reaches_glm_backend_without_hosted_tool
 
     async def drive():
         with patch("litellm.llms.custom_httpx.http_handler.AsyncHTTPHandler.post", side_effect=fake_post):
-            with pytest.raises(Exception):
+            with pytest.raises(Exception, match="stop before network"):
                 await litellm.anthropic.messages.acreate(
                     model="hosted_vllm/glm-5_2-fp8",
                     api_base="http://localhost:8000/v1",

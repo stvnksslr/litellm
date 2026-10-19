@@ -850,7 +850,6 @@ def test_handler_flattens_replayed_unencrypted_web_search_results():
                                     "title": "Releases",
                                     "page_age": None,
                                     "encrypted_content": "",
-                                    "snippet": "",
                                     "snippet": "Latest release v1.95.0",
                                 }
                             ],

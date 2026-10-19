@@ -116,7 +116,9 @@ export const prepareModelAddRequest = async (formValues: Record<string, any>, ac
         } else if (key === "model_access_group") {
           modelInfoObj["access_groups"] = value;
         } else if (key === "skip_budget_checks") {
-          modelInfoObj["skip_budget_checks"] = value;
+          if (value === true) {
+            modelInfoObj["skip_budget_checks"] = true;
+          }
         } else if (key == "mode") {
           modelInfoObj["mode"] = value;
 

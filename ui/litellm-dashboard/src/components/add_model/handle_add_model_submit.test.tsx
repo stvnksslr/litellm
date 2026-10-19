@@ -117,6 +117,25 @@ describe("prepareModelAddRequest", () => {
   });
 
   it.each([
+    [true, true],
+    [false, false],
+    [undefined, false],
+  ])("with skip_budget_checks=%s, sends model_info.skip_budget_checks only when switched on", async (skip, sent) => {
+    const formValues = {
+      model_mappings: [{ public_name: "Paid", litellm_model: "openai/gpt-5.4" }],
+      skip_budget_checks: skip,
+    };
+
+    const deployments = await prepareModelAddRequest({ ...formValues }, "token", null);
+
+    expect(deployments).toHaveLength(1);
+    const [deployment] = deployments!;
+    expect(Object.hasOwn(deployment.modelInfoObj, "skip_budget_checks")).toBe(sent);
+    expect(deployment.modelInfoObj.skip_budget_checks).toBe(sent ? true : undefined);
+    expect(deployment.litellmParamsObj).not.toHaveProperty("skip_budget_checks");
+  });
+
+  it.each([
     ["OpenAI", "openai/*"],
     ["Azure_AI_Studio", "azure_ai/*"],
     ["Petals", "petals/*"],

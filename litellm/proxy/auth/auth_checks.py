@@ -168,9 +168,9 @@ from litellm.repositories.team_repository import TeamRepository
 from litellm.repositories.user_repository import UserRepository
 from litellm.router import Router
 from litellm.router_api import RegistryReader
+from litellm.router_utils.fallback_event_handlers import _check_stripped_model_group
 from litellm.types.proxy.auth.auth_checks import UserNotFoundError
 from litellm.types.proxy.model_access_group_budget import ModelAccessGroupBudget
-from litellm.router_utils.fallback_event_handlers import _check_stripped_model_group
 from litellm.types.router import DeploymentTypedDict
 from litellm.utils import get_utc_datetime
 from litellm.vector_stores.vector_store_registry import listed_vector_store_ids, vector_store_ids_in_tool

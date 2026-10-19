@@ -1,6 +1,6 @@
 # Fork patch manifest (delta vs upstream v1.106.0, `v1.106.0..HEAD`)
 
-Line numbers are as of the current `main-pitchbook` tip. For modified files they are diff-hunk ranges (`git diff v1.106.0..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 107 files, +8,049 / -199, roughly 67% tests
+Line numbers are as of the current `main-pitchbook` tip. For modified files they are diff-hunk ranges (`git diff v1.106.0..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 107 files, +8,165 / -199, roughly 67% tests
 
 ## Agentic coding clients on the proxy (/v1/messages bridge)
 
@@ -66,12 +66,12 @@ Line numbers are as of the current `main-pitchbook` tip. For modified files they
 
 Generic typed-decision API routing over Vertex AI dedicated endpoints. The current serving model is Eikos; the route is keyed on the LiteLLM model group (`VertexAIModelSet` name), so the Vertex model can be replaced or upgraded without gateway changes.
 
-- `litellm/llms/vertex_ai/passthrough/transformation.py` L1-L145: new `VertexAIDeciderPassthroughConfig`, SystemOne typed-decision pass-through for invoke-mode Vertex deployments: URL join is `api_base + /<endpoint>` (the deployment `api_base` ends at the container's `/invoke/v1` prefix), auth via `VertexBase` OAuth (Workload Identity or `vertex_credentials`), and non-streaming responses map SystemOne `usage.input_tokens`/`output_tokens` onto `prompt_tokens`/`completion_tokens`. The response's own `model` field is a server-side weight path, so it is not used for attribution
+- `litellm/llms/vertex_ai/passthrough/transformation.py` L1-L147: new `VertexAIDeciderPassthroughConfig`, SystemOne typed-decision pass-through for invoke-mode Vertex deployments: URL join is `api_base + /<endpoint>` (the deployment `api_base` ends at the container's `/invoke/v1` prefix), auth via `VertexBase` OAuth (Workload Identity or `vertex_credentials`) through one module-level `VertexBase`, injected as the default, so every request reuses its token cache instead of reloading credentials, and non-streaming responses map SystemOne `usage.input_tokens`/`output_tokens` onto `prompt_tokens`/`completion_tokens`. The response's own `model` field is a server-side weight path, so it is not used for attribution
 - `litellm/llms/vertex_ai/passthrough/__init__.py` L1-L3: exports
 - `litellm/utils.py` L9506-L9511: `ProviderConfigManager.get_provider_passthrough_config` returns the config for `LlmProviders.VERTEX_AI`
-- `litellm/proxy/pass_through_endpoints/llm_passthrough_endpoints.py` L4139-L4339: new `/decider/{endpoint:path}` route + `handle_decider_passthrough_router_model`: body `model` (or `?model=`) must name a router model group; relay through `ProxyBaseLLMRequestProcessing.base_passthrough_process_llm_request` so auth metadata, hooks, logging and budgets apply; leading `v1/` stripped against the api_base; deployment `litellm_params` win over caller-sent routing keys (`api_base`/`api_key`/`vertex_*`) so per-region load balancing holds
+- `litellm/proxy/pass_through_endpoints/llm_passthrough_endpoints.py` L23, L4140-L4347: new `/decider/{endpoint:path}` route + `handle_decider_passthrough_router_model`: body `model` must name a router model group, with `?model=` used only when the body has no `model` key (the same rule auth uses, so a `null` body model can't skip the key's model check); paths with `.` or `..` segments, percent-encoded or not, get a 400 so a caller can't climb out of `/invoke/v1` with the proxy's Google token; relay through `ProxyBaseLLMRequestProcessing.base_passthrough_process_llm_request` so auth metadata, hooks, logging and budgets apply; leading `v1/` stripped against the api_base; deployment `litellm_params` win over caller-sent routing keys (`api_base`/`api_key`/`vertex_*`) so per-region load balancing holds
 - `litellm/proxy/_lazy_features.py` L216: `/decider/` prefix on the `llm_passthrough` lazy slot so the router activates on first use
-- `tests/unit/proxy/pass_through_endpoints/test_decider_pass_through_endpoints.py` L1-L308: route and config tests: URL join, usage mapping, bearer injection, `v1/` strip, metadata isolation, query-param model, unknown-group rejection
+- `tests/unit/proxy/pass_through_endpoints/test_decider_pass_through_endpoints.py` L1-L418: route and config tests: URL join, usage mapping, token cache reuse, `v1/` strip, metadata isolation, query-param model, empty body model, dot-segment rejection, unknown-group rejection
 
 ## Model discovery and access groups
 

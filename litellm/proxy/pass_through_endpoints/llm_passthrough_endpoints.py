@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from functools import partial
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated, Final, Literal, Protocol, cast
+from urllib.parse import unquote
 
 import httpx
 import openai
@@ -4136,6 +4137,10 @@ async def handle_gigachat_passthrough_router_model(
         return result
 
 
+def _has_dot_segment(path: str) -> bool:
+    return any(unquote(segment) in (".", "..") for segment in path.split("/"))
+
+
 @router.api_route(
     "/decider/{endpoint:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH"],  # mutable-ok: FastAPI route methods
@@ -4178,7 +4183,8 @@ async def decider_proxy_route(
     )
 
     request_body: Final[dict[str, object]] = dict(await _read_request_body(request=request))
-    raw_model: Final = request_body.get("model") or request.query_params.get("model")
+    # Auth fills `model` from the query only when the body has no `model` key, so routing must do the same
+    raw_model: Final = request_body["model"] if "model" in request_body else request.query_params.get("model")
     model: Final = raw_model if isinstance(raw_model, str) else None
     if (
         not model
@@ -4197,6 +4203,11 @@ async def decider_proxy_route(
     # A leading v1/ is stripped: the deployment api_base already ends at the
     # container's /invoke/v1 prefix, so POST /decider/v1/systemone targets
     # <api_base>/systemone.
+    if _has_dot_segment(endpoint_path):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "Decider endpoint paths must not contain '.' or '..' segments."},
+        )
 
     return await handle_decider_passthrough_router_model(
         model=model,
@@ -4293,9 +4304,6 @@ async def handle_decider_passthrough_router_model(
         "vertex_credentials",
         "vertex_ai_credentials",
         "model_id",
-        "gigachat_auth_url",
-        "gigachat_access_token",
-        "gigachat_scope",
     )
     for key in routing_keys:
         data.pop(key, None)

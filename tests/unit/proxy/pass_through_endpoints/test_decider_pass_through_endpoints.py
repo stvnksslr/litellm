@@ -4,13 +4,19 @@ The route relays typed-decision requests (`/v1/systemone` and friends) to
 a Vertex AI dedicated-endpoint deployment registered by VertexAIModelSet.
 """
 
+from dataclasses import dataclass
 from typing import Any
 from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
 import httpx
 import pytest
 from fastapi import HTTPException, Request, Response
+from starlette.types import Message
 
+from litellm import Router
+from litellm.llms.base_llm.passthrough.transformation import BasePassthroughConfig
+from litellm.llms.vertex_ai.vertex_llm_base import VertexBase
 from litellm.proxy.auth.user_api_key_auth import UserAPIKeyAuth
 from litellm.proxy.pass_through_endpoints.llm_passthrough_endpoints import (
     decider_proxy_route,
@@ -44,6 +50,67 @@ EIKOS_RESPONSE_BODY = {
     "usage": {"input_tokens": 606, "output_tokens": 0},
     "latency_s": 0.108,
 }
+EIKOS_API_BASE = (
+    "https://ep.us-south1-123456789012.prediction.vertexai.goog"
+    "/v1/projects/123456789012/locations/us-south1/endpoints/ep/invoke/v1"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _FreshCredentials:
+    token: str = "ya29.test"
+    expired: bool = False
+    quota_project_id: str | None = None
+
+    def refresh(self, request: object) -> None:
+        raise AssertionError("fresh credentials must not be refreshed")
+
+
+class _CountingVertexBase(VertexBase):
+    def __init__(self) -> None:
+        super().__init__()
+        self.loads = 0
+
+    def load_auth(self, credentials: object, project_id: object) -> tuple[_FreshCredentials, str]:
+        self.loads += 1
+        return _FreshCredentials(), "test-project"
+
+
+def _validate(config: BasePassthroughConfig, litellm_params: dict[str, object] | None = None) -> dict[str, str]:
+    return config.validate_environment(
+        headers={},
+        model="vertex_ai/openai/decider",
+        messages=[],
+        optional_params={},
+        litellm_params=litellm_params or {"vertex_project": "test-project"},
+    )
+
+
+def _eikos_router() -> Router:
+    return Router(
+        model_list=[
+            {
+                "model_name": "eikos-27b",
+                "litellm_params": {"model": "vertex_ai/openai/decider", "api_base": EIKOS_API_BASE},
+            }
+        ]
+    )
+
+
+def _decider_request(path: str, query_string: bytes, body: bytes) -> Request:
+    async def receive() -> Message:
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    return Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "headers": [(b"content-type", b"application/json")],
+            "query_string": query_string,
+            "path": path,
+        },
+        receive,
+    )
 
 
 class TestVertexAIDeciderPassthroughConfig:
@@ -63,10 +130,7 @@ class TestVertexAIDeciderPassthroughConfig:
 
         config = VertexAIDeciderPassthroughConfig()
         url, base = config.get_complete_url(
-            api_base=(
-                "https://ep.us-south1-78207166843.prediction.vertexai.goog"
-                "/v1/projects/78207166843/locations/us-south1/endpoints/ep/invoke/v1"
-            ),
+            api_base=EIKOS_API_BASE,
             api_key=None,
             model="vertex_ai/openai/decider",
             endpoint="systemone",
@@ -82,7 +146,7 @@ class TestVertexAIDeciderPassthroughConfig:
         )
 
         config = VertexAIDeciderPassthroughConfig()
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="missing 'api_base'"):
             config.get_complete_url(
                 api_base=None,
                 api_key=None,
@@ -129,36 +193,39 @@ class TestVertexAIDeciderPassthroughConfig:
             is None
         )
 
-    def test_validate_environment_sets_bearer_token(self) -> None:
+    def test_validate_environment_loads_credentials_once_across_requests(self) -> None:
         from litellm.llms.vertex_ai.passthrough.transformation import (
             VertexAIDeciderPassthroughConfig,
         )
 
-        config = VertexAIDeciderPassthroughConfig()
-        with patch.object(
-            type(config).__mro__[1],  # VertexBase method is called through the instance
-            "_ensure_access_token",
-            create=True,
-        ) as _:
-            # Patch at the source class to avoid network access.
-            with patch(
-                "litellm.llms.vertex_ai.vertex_llm_base.VertexBase._ensure_access_token",
-                return_value=("test-token", "test-project"),
-            ):
-                headers = config.validate_environment(
-                    headers={},
-                    model="vertex_ai/openai/decider",
-                    messages=[],
-                    optional_params={},
-                    litellm_params={
-                        "vertex_project": "test-project",
-                        "vertex_location": "us-central1",
-                    },
-                    api_key=None,
-                    api_base=None,
+        vertex_base = _CountingVertexBase()
+        config = VertexAIDeciderPassthroughConfig(vertex_base=vertex_base)
+
+        headers = [_validate(config) for _ in range(3)]
+
+        assert headers == [{"Authorization": "Bearer ya29.test", "Content-Type": "application/json"}] * 3
+        assert vertex_base.loads == 1, "every decider request reloaded Vertex credentials"
+
+    def test_configs_from_provider_config_manager_share_one_token_cache(self) -> None:
+        from litellm.types.utils import LlmProviders
+        from litellm.utils import ProviderConfigManager
+
+        project = f"shared-cache-{uuid4()}"
+        loads: list[None] = []
+
+        def load_auth(_self: VertexBase, credentials: object, project_id: object) -> tuple[_FreshCredentials, str]:
+            loads.append(None)
+            return _FreshCredentials(), "test-project"
+
+        with patch.object(VertexBase, "load_auth", load_auth):
+            for _ in range(3):
+                config = ProviderConfigManager.get_provider_passthrough_config(
+                    provider=LlmProviders.VERTEX_AI, model="vertex_ai/openai/decider-shared-cache"
                 )
-        assert headers["Authorization"] == "Bearer test-token"
-        assert headers["Content-Type"] == "application/json"
+                assert config is not None
+                _validate(config, litellm_params={"vertex_project": project})
+
+        assert len(loads) == 1, "each request got a config with an empty Vertex token cache"
 
 
 class TestDeciderProxyRoute:
@@ -179,7 +246,11 @@ class TestDeciderProxyRoute:
         assert exc_info.value.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_relays_with_stripped_v1_prefix(self) -> None:
+    @pytest.mark.parametrize(
+        ("endpoint", "expected_endpoint"),
+        [("v1/systemone", "systemone"), ("v1/sessions/s.1..2/", "sessions/s.1..2/")],
+    )
+    async def test_relays_with_stripped_v1_prefix(self, endpoint: str, expected_endpoint: str) -> None:
         mock_llm_router = MagicMock(spec=["allm_passthrough_route"])
         captured: dict[str, Any] = {}
 
@@ -203,7 +274,7 @@ class TestDeciderProxyRoute:
             ),
         ):
             await decider_proxy_route(
-                endpoint="v1/systemone",
+                endpoint=endpoint,
                 request=_make_request({"model": "eikos-27b", "state": "s", "questions": {}}),
                 fastapi_response=MagicMock(spec=Response),
                 user_api_key_dict=MagicMock(spec=UserAPIKeyAuth),
@@ -211,7 +282,7 @@ class TestDeciderProxyRoute:
 
         data = captured["data"]
         assert data["model"] == "eikos-27b"
-        assert data["endpoint"] == "systemone"  # v1/ stripped: api_base ends at /invoke/v1
+        assert data["endpoint"] == expected_endpoint  # v1/ stripped: api_base ends at /invoke/v1
         assert data["custom_llm_provider"] == "vertex_ai"
         assert data["json"]["state"] == "s"
         assert "api_base" not in data  # deployment litellm_params must win
@@ -306,3 +377,42 @@ class TestDeciderModelFromQueryParam:
             )
         assert captured["data"]["model"] == "eikos-27b"
         assert captured["data"]["endpoint"] == "health"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [b'{"model": null}', b'{"model": ""}'])
+async def test_decider_route_ignores_the_query_model_when_the_body_names_an_empty_model(body: bytes) -> None:
+    with patch("litellm.proxy.proxy_server.llm_router", _eikos_router()):
+        with pytest.raises(HTTPException) as rejection:
+            await decider_proxy_route(
+                endpoint="v1/systemone",
+                request=_decider_request("/decider/v1/systemone", b"model=eikos-27b", body),
+                fastapi_response=Response(),
+                user_api_key_dict=UserAPIKeyAuth(),
+            )
+
+    assert rejection.value.status_code == 400
+    assert "requires 'model'" in str(rejection.value.detail)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "v1/../../../ep:rawPredict",
+        "v1/%2e%2e/%2E%2E/%2e%2e/ep:rawPredict",
+        "v1/sessions/./abc",
+    ],
+)
+async def test_decider_route_rejects_paths_that_climb_out_of_the_invoke_prefix(endpoint: str) -> None:
+    with patch("litellm.proxy.proxy_server.llm_router", _eikos_router()):
+        with pytest.raises(HTTPException) as rejection:
+            await decider_proxy_route(
+                endpoint=endpoint,
+                request=_decider_request(f"/decider/{endpoint}", b"", b'{"model": "eikos-27b"}'),
+                fastapi_response=Response(),
+                user_api_key_dict=UserAPIKeyAuth(),
+            )
+
+    assert rejection.value.status_code == 400
+    assert "'.' or '..' segments" in str(rejection.value.detail)

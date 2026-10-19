@@ -24,6 +24,8 @@ if TYPE_CHECKING:
     from litellm.types.llms.openai import AllMessageValues
     from litellm.types.utils import CostResponseTypes
 
+_SHARED_VERTEX_BASE: Final = VertexBase()
+
 
 class VertexAIDeciderPassthroughConfig(BasePassthroughConfig):
     """Pass-through for Vertex AI dedicated-endpoint decider models (SystemOne API).
@@ -39,6 +41,9 @@ v1/projects/<n>/locations/<region>/endpoints/<id>/invoke/v1
     `api_base` already ends at the `/invoke/v1` container-prefix boundary, so any
     container route is reachable by appending it verbatim (e.g. `systemone`).
     """
+
+    def __init__(self, vertex_base: VertexBase = _SHARED_VERTEX_BASE) -> None:
+        self.vertex_base: Final = vertex_base
 
     def is_streaming_request(self, endpoint: str, request_data: Mapping[str, object]) -> bool:
         # SystemOne typed-decision responses are single JSON documents; honor the
@@ -73,12 +78,9 @@ v1/projects/<n>/locations/<region>/endpoints/<id>/invoke/v1
         api_key: str | None = None,
         api_base: str | None = None,
     ) -> dict:
-        vertex_base = VertexBase()
-        vertex_credentials = vertex_base.safe_get_vertex_ai_credentials(dict(litellm_params))
-        vertex_project = vertex_base.safe_get_vertex_ai_project(dict(litellm_params))
-        token, _ = vertex_base._ensure_access_token(
-            credentials=vertex_credentials,
-            project_id=vertex_project,
+        token, _ = self.vertex_base.ensure_access_token(
+            credentials=VertexBase.safe_get_vertex_ai_credentials(dict(litellm_params)),
+            project_id=VertexBase.safe_get_vertex_ai_project(dict(litellm_params)),
             custom_llm_provider="vertex_ai",
         )
         headers["Authorization"] = f"Bearer {token}"  # mutable-ok: auth header setup

@@ -25,8 +25,8 @@ outputs = ["node_modules/.package-lock.json"]
 run = "npm ci --no-audit --no-fund"
 
 [tasks."hooks:install"]
-description = "Install the prek git hooks (pre-commit and pre-push)"
-run = "prek install"
+description = "Install the prek git hooks (pre-commit and pre-push) into .git/hooks"
+run = 'if hooks_path=$(git config --get core.hooksPath); then echo "core.hooksPath is $hooks_path, so prek would overwrite the hooks there. Run git config --unset core.hooksPath first" >&2; exit 1; fi; prek install'
 
 [tasks."lint:uv-lock"]
 description = "uv.lock is in sync with pyproject.toml"

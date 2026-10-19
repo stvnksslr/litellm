@@ -96,7 +96,8 @@ Generic typed-decision API routing over Vertex AI dedicated endpoints. The curre
 - `src/app/(dashboard)/hooks/accessGroups/useEditAccessGroup.ts`: `listed_model_names` on API types
 - `src/app/(dashboard)/access-groups/_components/access-group-create/AccessGroupCreateDialog.tsx`: "Models shown in /v1/models" field on the create dialog
 - `src/components/add_model/advanced_settings.tsx`: skip-budget-checks switch on add-model advanced settings
-- `src/components/add_model/handle_add_model_submit.tsx`: map `skip_budget_checks` into `model_info`
+- `src/components/add_model/handle_add_model_submit.tsx`: set `model_info.skip_budget_checks` only when the switch is on, so an untouched switch leaves upstream's add-model payload contract unchanged
+- `src/components/add_model/handle_add_model_submit.test.tsx`: `skip_budget_checks` reaches `model_info` only when switched on
 - `src/components/ModelInfoEditForm.tsx`: skip-budget-checks field in edit form and read-only display
 - `src/components/model_info_view.tsx`: persist `skip_budget_checks` in model_info update
 
@@ -111,7 +112,7 @@ Generic typed-decision API routing over Vertex AI dedicated endpoints. The curre
 - `tests/unit/llms/anthropic/pass_through/adapters/test_handler_output_config_passthrough.py` L60, L64, L216-L318, L349-L432: output config stripping, prompt cache forwarding
 - `tests/unit/llms/anthropic/pass_through/adapters/test_model_garden_reasoning.py` L1-L148: Qwen/GLM reasoning defaults and tier mapping
 - `tests/unit/llms/anthropic/pass_through/adapters/test_tool_search.py` L1-L101: reference expansion and deferred tool forwarding
-- `tests/unit/llms/anthropic/pass_through/messages/test_anthropic_experimental_pass_through_messages_handler.py` L853, L1021-L1166: responses-endpoint routing gate
+- `tests/unit/llms/anthropic/pass_through/messages/test_anthropic_experimental_pass_through_messages_handler.py` L1020-L1165: responses-endpoint routing gate
 - `tests/unit/llms/anthropic/pass_through/responses_adapters/test_responses_adapters_streaming_iterator.py` L625-L842: streaming web-search block emission
 - `tests/unit/llms/anthropic/pass_through/responses_adapters/test_responses_adapters_transformation.py` L874-L912, L2215-L2381: web_search tool translation, tool_choice; prompt cache breakpoints
 - `tests/unit/llms/azure/chat/test_azure_gpt5_transformation.py` L52-L128: Azure min-token floor; 1.25x cache-write price resolution
@@ -133,6 +134,17 @@ Generic typed-decision API routing over Vertex AI dedicated endpoints. The curre
 - Dashboard fixtures: `AccessGroupsPage.test.tsx`, `AccessGroupEditModal.integration.test.tsx`, `useAccessGroups.test.ts`, `AccessGroupsDetailsPage.test.tsx`, `AccessGroupCreateDialog.test.tsx`, `mapper.test.ts`, `model_info_view.test.tsx`: upstream fixtures carry the fork's required `listed_model_names`
 
 `test_handler_hosted_tool_stripping.py::test_web_search_options_still_set_for_models_that_map_it` registers its own web-search-capable Gemini entry, since v1.104.0's map no longer flags `gemini/gemini-2.0-flash`
+
+## Lint, format and test tooling (mise + prek)
+
+Upstream's lint and unit workflows only trigger for PRs into `main` and `litellm_**`, so nothing linted or tested PRs into the fork's default branch. Every check is now a mise task, every task has exactly one prek hook, and CI runs those same hooks, so a local pass and a CI pass mean the same thing
+
+- `mise.toml` L1-L97: pins uv 0.10.9 (what upstream CI installs) and prek 0.5.5, reads Node from `ui/litellm-dashboard/.nvmrc` and sets `UV_PYTHON=3.12` like upstream CI; one task per check of upstream's `test-linting.yml` python and ui jobs, plus `setup`, `setup:ui` and `hooks:install`
+- `mise-tasks/` (file tasks): `format`, `format:check`, `lint:ui`, `lint:api-types`, `lint:hooks-parity`, `test:unit`, `test:ui` and `ci`, and the hidden `changed-files` helper that scopes the diff-based checks to files changed since the merge base with origin's default branch, committed or not
+- `.pre-commit-config.yaml` L1-L150: one local prek hook per `lint:`, `test:` and `format:check` task, the fast ones at pre-commit and the merge-base gates, API type drift and tests at pre-push; `lint:hooks-parity` fails when a task and its hook drift apart
+- `.github/workflows/fork-checks.yml` L1-L54: `mise run ci` (every hook, both stages) on PRs into and pushes to the fork's default branch, over the PR's changed files or, on push, all files, with the Rust bridge build cached because upstream's `cache-cargo-build` action only saves on upstream's `main`
+- `.gitignore` L157-L159: `mise.local.toml` for machine-local task overrides
+- `test:unit` runs the unit test files that differ from the upstream tag named by `pyproject.toml`'s version (about 4,000 tests, under 2 minutes on 4 cores). Upstream's full suite is about 88,000 tests, too slow for a hook or a single job, and upstream's own CI already runs it on the code the fork is based on
 
 ## Build, ops and misc
 

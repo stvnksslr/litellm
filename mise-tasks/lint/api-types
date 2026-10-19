@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+#MISE description="The lazy OpenAPI snapshot and the dashboard API types match the proxy's routes"
+#MISE depends=["setup", "setup:ui"]
+set -eo pipefail
+uv run --no-sync python -m litellm.proxy._lazy_openapi_snapshot
+if ! git diff --exit-code -- litellm/proxy/_lazy_openapi_snapshot.json; then
+  echo "litellm/proxy/_lazy_openapi_snapshot.json is out of sync with the lazily loaded routes. Commit the regenerated file"
+  exit 1
+fi
+(cd ui/litellm-dashboard && LITELLM_PYTHON="uv run --no-sync python" npm run gen:api)
+if ! git diff --exit-code -- ui/litellm-dashboard/src/lib/http/schema.d.ts; then
+  echo "ui/litellm-dashboard/src/lib/http/schema.d.ts is out of sync with the proxy OpenAPI spec. Commit the regenerated file"
+  exit 1
+fi

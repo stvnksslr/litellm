@@ -1,0 +1,150 @@
+default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit]
+
+repos:
+  - repo: local
+    hooks:
+      - id: format-check
+        name: format:check
+        entry: mise run format:check
+        language: system
+        pass_filenames: false
+        files: ^litellm/.*\.py$
+        exclude: ^litellm/enterprise/
+
+      - id: lint-uv-lock
+        name: lint:uv-lock
+        entry: mise run lint:uv-lock
+        language: system
+        pass_filenames: false
+        files: ^(pyproject\.toml|uv\.lock)$
+
+      - id: lint-mcp-boundary
+        name: lint:mcp-boundary
+        entry: mise run lint:mcp-boundary
+        language: system
+        pass_filenames: false
+        files: \.py$
+
+      - id: lint-ruff
+        name: lint:ruff
+        entry: mise run lint:ruff
+        language: system
+        pass_filenames: false
+        files: ^litellm/.*\.py$|^(ruff\.toml|pyproject\.toml)$
+
+      - id: lint-ruff-tests
+        name: lint:ruff-tests
+        entry: mise run lint:ruff-tests
+        language: system
+        pass_filenames: false
+        files: ^tests/.*\.py$|^(ruff-tests\.toml|ruff\.toml)$
+
+      - id: lint-import-safety
+        name: lint:import-safety
+        entry: mise run lint:import-safety
+        language: system
+        pass_filenames: false
+        files: ^litellm/.*\.py$|^(pyproject\.toml|uv\.lock)$
+
+      - id: lint-ui
+        name: lint:ui
+        entry: mise run lint:ui
+        language: system
+        pass_filenames: false
+        files: ^ui/litellm-dashboard/
+
+      - id: lint-hooks-parity
+        name: lint:hooks-parity
+        entry: mise run lint:hooks-parity
+        language: system
+        pass_filenames: false
+        files: ^(mise\.toml|\.pre-commit-config\.yaml|mise-tasks/.*)$
+
+      - id: lint-ruff-strict
+        name: lint:ruff-strict
+        entry: mise run lint:ruff-strict
+        language: system
+        pass_filenames: false
+        files: \.py$|^(ruff\.toml|ruff-tests\.toml|pyproject\.toml)$
+        stages: [pre-push]
+
+      - id: lint-type-discipline
+        name: lint:type-discipline
+        entry: mise run lint:type-discipline
+        language: system
+        pass_filenames: false
+        files: \.py$
+        stages: [pre-push]
+
+      - id: lint-test-quality
+        name: lint:test-quality
+        entry: mise run lint:test-quality
+        language: system
+        pass_filenames: false
+        files: \.py$|^ruff-tests\.toml$
+        stages: [pre-push]
+
+      - id: lint-basedpyright
+        name: lint:basedpyright
+        entry: mise run lint:basedpyright
+        language: system
+        pass_filenames: false
+        files: \.py$|^(pyrightconfig\.json|pyproject\.toml|uv\.lock)$
+        stages: [pre-push]
+
+      - id: lint-e2e-basedpyright
+        name: lint:e2e-basedpyright
+        entry: mise run lint:e2e-basedpyright
+        language: system
+        pass_filenames: false
+        files: ^tests/(e2e|e2e_harness)/.*\.py$|^pyrightconfig\.json$
+        stages: [pre-push]
+
+      - id: lint-circular-imports
+        name: lint:circular-imports
+        entry: mise run lint:circular-imports
+        language: system
+        pass_filenames: false
+        files: ^litellm/.*\.py$
+        stages: [pre-push]
+
+      - id: lint-api-types
+        name: lint:api-types
+        entry: mise run lint:api-types
+        language: system
+        pass_filenames: false
+        files: ^litellm/(proxy|types)/|^ui/litellm-dashboard/(src/lib/http/schema\.d\.ts|scripts/gen-api-types\.mjs|package(-lock)?\.json)$
+        stages: [pre-push]
+
+      - id: lint-ui-budgets
+        name: lint:ui-budgets
+        entry: mise run lint:ui-budgets
+        language: system
+        pass_filenames: false
+        files: ^ui/litellm-dashboard/
+        stages: [pre-push]
+
+      - id: lint-ui-knip
+        name: lint:ui-knip
+        entry: mise run lint:ui-knip
+        language: system
+        pass_filenames: false
+        files: ^ui/litellm-dashboard/
+        stages: [pre-push]
+
+      - id: test-unit
+        name: test:unit
+        entry: mise run test:unit
+        language: system
+        pass_filenames: false
+        files: \.py$|^(pyproject\.toml|uv\.lock)$
+        stages: [pre-push]
+
+      - id: test-ui
+        name: test:ui
+        entry: mise run test:ui
+        language: system
+        pass_filenames: false
+        files: ^ui/litellm-dashboard/
+        stages: [pre-push]

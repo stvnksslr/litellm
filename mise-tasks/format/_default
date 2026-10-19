@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+#MISE description="ruff format the changed litellm/ Python files and prettier the changed dashboard files"
+#MISE depends=["setup"]
+set -eo pipefail
+changed="$MISE_PROJECT_ROOT/mise-tasks/changed-files"
+python_files=()
+while IFS= read -r f; do python_files+=("$f"); done < <("$changed" ':(glob)litellm/**/*.py' ':(exclude)litellm/enterprise/**')
+dashboard_files=()
+while IFS= read -r f; do dashboard_files+=("${f#ui/litellm-dashboard/}"); done < <("$changed" ui/litellm-dashboard)
+if [ ${#python_files[@]} -gt 0 ]; then
+  uv run --no-sync ruff format --exclude '/enterprise/' "${python_files[@]}"
+fi
+if [ ${#dashboard_files[@]} -gt 0 ]; then
+  mise run setup:ui
+  cd ui/litellm-dashboard && npx prettier --write --ignore-unknown "${dashboard_files[@]}"
+fi

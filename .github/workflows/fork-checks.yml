@@ -1,0 +1,43 @@
+name: Fork checks
+
+on:
+  pull_request:
+    branches:
+      - main-pitchbook
+  push:
+    branches:
+      - main-pitchbook
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: lint, format and tests (mise run ci)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install mise and the pinned tools
+        uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
+        with:
+          version: 2026.10.12
+          sha256: 72404716768b5b044cbd5170136d3d795cbd592658b6e932b66f0f8d67a54875
+
+      - name: Install the Python env
+        run: mise run setup
+
+      - name: Run every prek hook (mise run ci)
+        env:
+          CI_ALL_FILES: ${{ github.event_name == 'push' && '1' || '' }}
+          GH_TOKEN: ${{ github.token }}
+        run: mise run ci

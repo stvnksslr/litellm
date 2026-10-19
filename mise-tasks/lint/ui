@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#MISE description="prettier --check and eslint on the dashboard files changed on this branch"
+#MISE depends=["setup:ui"]
+#MISE dir="ui/litellm-dashboard"
+set -eo pipefail
+prettier_files=()
+eslint_files=()
+while IFS= read -r f; do
+  f=${f#ui/litellm-dashboard/}
+  case "$f" in
+    *.js | *.jsx | *.ts | *.tsx | *.mjs | *.cjs) prettier_files+=("$f") && eslint_files+=("$f") ;;
+    *.json | *.css | *.scss | *.md | *.mdx | *.yml | *.yaml | *.html) prettier_files+=("$f") ;;
+  esac
+done < <("$MISE_PROJECT_ROOT/mise-tasks/changed-files" ui/litellm-dashboard)
+if [ ${#prettier_files[@]} -eq 0 ]; then
+  echo "No lintable dashboard files changed on this branch."
+  exit 0
+fi
+status=0
+npx prettier --check "${prettier_files[@]}" || { status=1; echo "Unformatted files. Fix with: mise run format"; }
+if [ ${#eslint_files[@]} -gt 0 ]; then
+  npx eslint --no-warn-ignored --pass-on-unpruned-suppressions "${eslint_files[@]}" || status=1
+fi
+exit $status

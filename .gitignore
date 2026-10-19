@@ -154,3 +154,6 @@ coverage-rust.xml
 
 # make lens-dev worker token, generated config and logs
 .lens-dev/
+
+# mise
+mise.local.toml

@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+#MISE description="The unit test files this fork adds or changes relative to the upstream release it is based on"
+#MISE depends=["setup"]
+set -eo pipefail
+version=$(uv run --no-sync python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+tag="v$version"
+if ! git rev-parse -q --verify "refs/tags/$tag^{commit}" >/dev/null; then
+  git fetch -q --no-tags https://github.com/BerriAI/litellm "refs/tags/$tag:refs/tags/$tag"
+fi
+tests=()
+while IFS= read -r f; do tests+=("$f"); done < <(git diff --name-only --diff-filter=ACMR "$tag" -- ':(glob)tests/unit/**/test_*.py')
+if [ ${#tests[@]} -eq 0 ]; then
+  echo "No unit test files differ from upstream $tag."
+  exit 0
+fi
+echo "Running the ${#tests[@]} unit test files that differ from upstream $tag"
+uv run --no-sync pytest "${tests[@]}" --tb=short --maxfail=10 -n auto --dist=loadscope --timeout=120 --durations=20 "$@"

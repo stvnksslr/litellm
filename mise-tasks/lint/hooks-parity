@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+#MISE description="Every lint:, test: and format:check task has exactly one prek hook, and every prek hook runs one of them"
+set -eo pipefail
+cd "$MISE_PROJECT_ROOT"
+tasks=$(mise tasks ls --json | python3 -c 'import json, sys; print("\n".join(sorted(t["name"] for t in json.load(sys.stdin) if t["name"].startswith(("lint:", "test:")) or t["name"] == "format:check")))')
+hooks=$(sed -n 's/^ *entry: mise run \([^ ]*\)$/\1/p' .pre-commit-config.yaml | sort)
+if [ "$tasks" != "$hooks" ]; then
+  echo "mise tasks and prek hooks are out of sync (< task without a hook, > hook without a task):"
+  diff <(printf '%s\n' "$tasks") <(printf '%s\n' "$hooks") || true
+  exit 1
+fi
+echo "$(printf '%s\n' "$tasks" | wc -l | tr -d ' ') tasks, one prek hook each"

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+#MISE description="Run every prek hook, both stages, the way the Fork checks workflow does"
+set -eo pipefail
+if [ "${CI_ALL_FILES:-}" = 1 ]; then
+  scope=(--all-files)
+else
+  base=$(git merge-base HEAD "$(python3 scripts/default_branch.py --base "${BASE_REF:-}")")
+  scope=(--from-ref "$base" --to-ref HEAD)
+fi
+status=0
+prek run --hook-stage pre-commit "${scope[@]}" || status=1
+prek run --hook-stage pre-push "${scope[@]}" || status=1
+exit $status

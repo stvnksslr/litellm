@@ -1,0 +1,97 @@
+min_version = "2026.10.12"
+
+[tools]
+uv = "0.10.9"
+prek = "0.5.5"
+node = "{{ read_file(path='ui/litellm-dashboard/.nvmrc') | trim }}"
+
+[env]
+UV_PYTHON = "3.12"
+
+[tasks.setup]
+description = "Install the Python env the checks run in, then generate the Prisma client"
+sources = ["pyproject.toml", "uv.lock", "litellm/proxy/schema.prisma"]
+outputs = { auto = true }
+run = [
+  "uv sync --inexact --frozen --group ci --group proxy-dev --group e2e-dev --extra google --extra proxy --extra semantic-router --extra saml --extra caching --extra extra_proxy --extra proxy-runtime --extra utils",
+  "uv run --no-sync python scripts/prisma_generate_if_needed.py",
+]
+
+[tasks."setup:ui"]
+description = "Install the dashboard's npm dependencies"
+dir = "ui/litellm-dashboard"
+sources = ["package.json", "package-lock.json"]
+outputs = ["node_modules/.package-lock.json"]
+run = "npm ci --no-audit --no-fund"
+
+[tasks."hooks:install"]
+description = "Install the prek git hooks (pre-commit and pre-push)"
+run = "prek install"
+
+[tasks."lint:uv-lock"]
+description = "uv.lock is in sync with pyproject.toml"
+run = "uv lock --check"
+
+[tasks."lint:mcp-boundary"]
+description = "MCP operation boundary check"
+depends = ["setup"]
+run = "uv run --no-sync python scripts/check_mcp_operation_boundary.py"
+
+[tasks."lint:ruff"]
+description = "ruff check over litellm/"
+depends = ["setup"]
+dir = "litellm"
+run = "uv run --no-sync ruff check ."
+
+[tasks."lint:ruff-tests"]
+description = "ruff check over tests/ with ruff-tests.toml"
+depends = ["setup"]
+run = "uv run --no-sync ruff check --config ruff-tests.toml tests"
+
+[tasks."lint:ruff-strict"]
+description = "Strict ruff rules may not grow past their merge-base count"
+depends = ["setup"]
+run = 'uv run --no-sync python scripts/ruff_strict_gate.py --base "$(python3 scripts/default_branch.py --base "${BASE_REF:-}")"'
+
+[tasks."lint:type-discipline"]
+description = "Type-discipline rules may not grow past their merge-base count"
+depends = ["setup"]
+run = 'uv run --no-sync python scripts/type_discipline_gate.py --base "$(python3 scripts/default_branch.py --base "${BASE_REF:-}")"'
+
+[tasks."lint:test-quality"]
+description = "Test-quality rules may not grow past their merge-base count"
+depends = ["setup"]
+run = 'uv run --no-sync python scripts/test_quality_gate.py --base "$(python3 scripts/default_branch.py --base "${BASE_REF:-}")"'
+
+[tasks."lint:basedpyright"]
+description = "basedpyright rules may not grow past their merge-base count"
+depends = ["setup"]
+run = 'uv run --no-sync python scripts/type_check_gate.py --base "$(python3 scripts/default_branch.py --base "${BASE_REF:-}")"'
+
+[tasks."lint:e2e-basedpyright"]
+description = "basedpyright over tests/e2e and tests/e2e_harness, zero errors"
+depends = ["setup"]
+run = "uv run --no-sync basedpyright tests/e2e tests/e2e_harness"
+
+[tasks."lint:circular-imports"]
+description = "No circular imports in litellm/"
+depends = ["setup"]
+dir = "litellm"
+run = "uv run --no-sync python ../tests/documentation_tests/test_circular_imports.py"
+
+[tasks."lint:import-safety"]
+description = "`from litellm import *` works"
+depends = ["setup"]
+run = "uv run --no-sync python -c 'from litellm import *'"
+
+[tasks."lint:ui-budgets"]
+description = "Dashboard eslint counts stay within eslint-budgets.json"
+depends = ["setup:ui"]
+dir = "ui/litellm-dashboard"
+run = 'report=$(mktemp) && { npx eslint . -f json -o "$report" || true; } && node scripts/check-lint-budgets.mjs "$report" eslint-budgets.json'
+
+[tasks."lint:ui-knip"]
+description = "No dead dashboard code (knip)"
+depends = ["setup:ui"]
+dir = "ui/litellm-dashboard"
+run = "npm run knip:ci"

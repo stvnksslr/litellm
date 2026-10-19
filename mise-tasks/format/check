@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+#MISE description="ruff format --check on the litellm/ Python files changed on this branch"
+#MISE depends=["setup"]
+set -eo pipefail
+files=()
+while IFS= read -r f; do files+=("$f"); done < <("$MISE_PROJECT_ROOT/mise-tasks/changed-files" ':(glob)litellm/**/*.py' ':(exclude)litellm/enterprise/**')
+if [ ${#files[@]} -eq 0 ]; then
+  echo "No changed litellm Python files to check with ruff format."
+  exit 0
+fi
+uv run --no-sync ruff format --check --exclude '/enterprise/' "${files[@]}"

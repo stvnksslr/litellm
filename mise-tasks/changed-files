@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+#MISE hide=true
+#MISE description="Files changed on this branch, committed or not, since its merge base with origin's default branch"
+set -eo pipefail
+cd "$MISE_PROJECT_ROOT"
+base_ref=$(python3 scripts/default_branch.py --base "${BASE_REF:-}")
+git diff --name-only --diff-filter=ACMR "$(git merge-base HEAD "$base_ref")" -- "$@"

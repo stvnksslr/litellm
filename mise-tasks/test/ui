@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+#MISE description="Dashboard typecheck, type tests, and the Vitest tests related to the dashboard files changed on this branch"
+#MISE depends=["setup:ui"]
+#MISE dir="ui/litellm-dashboard"
+set -eo pipefail
+npm run typecheck
+CI=true npm run test:types
+changed=()
+while IFS= read -r f; do changed+=("${f#ui/litellm-dashboard/}"); done < <("$MISE_PROJECT_ROOT/mise-tasks/changed-files" ui/litellm-dashboard)
+scope=$(printf '%s\n' "${changed[@]}" | bash "$MISE_PROJECT_ROOT/.github/scripts/select_ui_test_scope.sh")
+if [ "$scope" = related ]; then
+  CI=true npm run test -- related "${changed[@]}" --run --passWithNoTests --pool forks
+else
+  CI=true npm run test -- --run --pool forks
+fi

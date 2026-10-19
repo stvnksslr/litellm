@@ -2155,7 +2155,7 @@ async def test_async_post_call_failure_hook_resolves_model_from_route():
     should resolve the model from the route so the spend log / Logs UI model
     column is populated instead of blank.
     """
-    logger = _ProxyDBLogger()
+    logger = ProxyDBLogger()
 
     user_api_key_dict = UserAPIKeyAuth(
         api_key="test_api_key",
@@ -2183,7 +2183,7 @@ async def test_async_post_call_failure_hook_resolves_model_from_route():
 @pytest.mark.asyncio
 async def test_async_post_call_failure_hook_keeps_body_model_over_route():
     """A model supplied in the body is kept verbatim, not overwritten by the route."""
-    logger = _ProxyDBLogger()
+    logger = ProxyDBLogger()
 
     user_api_key_dict = UserAPIKeyAuth(
         api_key="test_api_key",

@@ -134,6 +134,11 @@ Generic typed-decision API routing over Vertex AI dedicated endpoints. The curre
 
 `test_handler_hosted_tool_stripping.py::test_web_search_options_still_set_for_models_that_map_it` registers its own web-search-capable Gemini entry, since v1.104.0's map no longer flags `gemini/gemini-2.0-flash`
 
+## GPT-6.1 Terra pricing backport
+
+- `model_prices_and_context_window.json`, `litellm/model_prices_and_context_window_backup.json`: the six `gpt-6.1-terra` rows (`gpt-6.1-terra`, `chatgpt/`, `global.openai.`, `us.openai.`, `github_copilot/`, `bedrock_mantle/openai.`), copied verbatim from upstream main (#48429, #48441, #48450, #48479). No tag carries them yet, not even v1.107.0-rc.2. Drop them and use upstream's rows once the fork moves onto a tag that ships them
+- `model_prices_and_context_window.schema.json`: regenerated with `ci_cd/generate_model_prices_schema.py` for the `cache_creation_input_token_cost_above_12hr*` fields those rows introduce. v1.106.5's cost calculator does not read the 12-hour cache-write tiers, so only the standard rates price requests
+
 ## Build, ops and misc
 
 - `litellm-rust/crates/llms-types/src/providers/anthropic.rs` L237: `dangerous-tool-use-2026-09-03` is unsupported only on `BedrockConverse`. v1.106.2 marked Databricks as supported in the JSON beta map (`0aefd1b8b7`) but kept the Rust mirror rejecting it, so `on_matches_every_config_cell` fails on plain v1.106.5. Ported from upstream main (#46091); drop it once a tag carries that line

@@ -14,8 +14,8 @@ from typing import Final, cast
 from pydantic import TypeAdapter
 
 import litellm
-from litellm.integrations.anthropic_cache_control_hook import AnthropicCacheControlHook
 from litellm._logging import verbose_logger
+from litellm.integrations.anthropic_cache_control_hook import AnthropicCacheControlHook
 from litellm.litellm_core_utils.exception_mapping_utils import exception_type
 from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLoggingObj
 from litellm.llms.anthropic.common_utils import (

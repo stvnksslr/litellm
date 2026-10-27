@@ -1,6 +1,6 @@
 # Fork patch manifest (delta vs upstream v1.106.5, `v1.106.5..HEAD`)
 
-Line numbers are as of the current `main-pitchbook` tip. For modified files they are diff-hunk ranges (`git diff v1.106.5..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 107 files, +8,040 / -197, roughly 67% tests
+Line numbers are as of the current `main-fork` tip. For modified files they are diff-hunk ranges (`git diff v1.106.5..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 107 files, +8,040 / -197, roughly 67% tests
 
 ## Agentic coding clients on the proxy (/v1/messages bridge)
 

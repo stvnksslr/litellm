@@ -136,6 +136,7 @@ Generic typed-decision API routing over Vertex AI dedicated endpoints. The curre
 
 ## Build, ops and misc
 
+- `litellm-rust/crates/llms-types/src/providers/anthropic.rs` L237: `dangerous-tool-use-2026-09-03` is unsupported only on `BedrockConverse`. v1.106.2 marked Databricks as supported in the JSON beta map (`0aefd1b8b7`) but kept the Rust mirror rejecting it, so `on_matches_every_config_cell` fails on plain v1.106.5. Ported from upstream main (#46091); drop it once a tag carries that line
 - `.github/workflows/fork-docker-build.yml` L1-L93: fork image build, datetime-stamped tags
 - `ui/litellm-dashboard/src/lib/http/schema.d.ts`: generated API schema types
 - `litellm/proxy/_lazy_openapi_snapshot.json`: generated OpenAPI snapshot

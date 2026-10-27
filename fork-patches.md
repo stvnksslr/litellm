@@ -1,6 +1,6 @@
-# Fork patch manifest (delta vs upstream v1.106.4, `v1.106.4..HEAD`)
+# Fork patch manifest (delta vs upstream v1.106.5, `v1.106.5..HEAD`)
 
-Line numbers are as of the current `main-pitchbook` tip. For modified files they are diff-hunk ranges (`git diff v1.106.4..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 107 files, +8,040 / -197, roughly 67% tests
+Line numbers are as of the current `main-pitchbook` tip. For modified files they are diff-hunk ranges (`git diff v1.106.5..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 107 files, +8,040 / -197, roughly 67% tests
 
 ## Agentic coding clients on the proxy (/v1/messages bridge)
 
@@ -75,7 +75,7 @@ Generic typed-decision API routing over Vertex AI dedicated endpoints. The curre
 
 ## Model discovery and access groups
 
-- `litellm/proxy/utils.py` L9000-L9019, L9147-L9169: team with access groups bounded to `_get_listed_models_from_access_groups`; no fall-through to all proxy models
+- `litellm/proxy/utils.py` L9078-L9097, L9225-L9247: team with access groups bounded to `_get_listed_models_from_access_groups`; no fall-through to all proxy models
 - `litellm/proxy/auth/auth_checks.py` L4679-L4736: `_get_listed_models_from_access_groups` reads `listed_model_names` from team/key access groups
 - `litellm/proxy/auth/model_checks.py` L211-L216, L229, L255-L258: strip `no-default-models` sentinel from granted list; dedupe wildcard + concrete entries
 - `litellm/models/access_group.py` L18: `listed_model_names` field on access group table model
@@ -143,6 +143,10 @@ Generic typed-decision API routing over Vertex AI dedicated endpoints. The curre
 ## Absorbed by upstream (no longer carried)
 
 Every drop below was verified by reverting the patch and rerunning its tests or an end-to-end probe
+
+### v1.106.5
+
+Nothing absorbed. The patch release backports #48599, which builds proxy-only failure logs from a metadata allowlist and ignores request-time GCS credentials. It adds code to `litellm/proxy/utils.py` above the fork's access-group hunks, which moved down 78 lines unchanged, and the rebase from v1.106.4 applied cleanly
 
 ### v1.106.1 through v1.106.4
 

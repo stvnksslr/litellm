@@ -317,7 +317,7 @@ class TestContextCachingEndpoints:
         mock_separate,
         custom_llm_provider,
     ):
-        """Test check_and_create_cache handles HTTP errors properly"""
+        """Test check_and_create_cache degrades to uncached when cache creation fails"""
         # Setup
         cached_messages = [self.sample_messages[0]]
         non_cached_messages = [self.sample_messages[1]]
@@ -327,10 +327,13 @@ class TestContextCachingEndpoints:
         mock_check_cache.return_value = None
         mock_get_token_url.return_value = ("token", "https://test-url.com")
 
-        # Mock HTTP error
+        # Google's rejection for models without explicit context caching support
         mock_response = MagicMock()
         mock_response.status_code = 400
-        mock_response.text = "Bad Request"
+        mock_response.text = (
+            '{"error": {"code": 400, "message": "Model `gemini-1.5-pro` does not '
+            'support explicit context caching.", "status": "INVALID_ARGUMENT"}}'
+        )
         http_error = httpx.HTTPStatusError(
             "Error", request=MagicMock(), response=mock_response
         )
@@ -340,8 +343,8 @@ class TestContextCachingEndpoints:
         test_project = "test_project"
         test_location = "us-central1"
 
-        # Execute and Assert
-        with pytest.raises(VertexAIError) as exc_info:
+        # Execute
+        messages, returned_params, returned_cache = (
             self.context_caching.check_and_create_cache(
                 messages=self.sample_messages,
                 optional_params=optional_params,
@@ -356,9 +359,12 @@ class TestContextCachingEndpoints:
                 vertex_location=test_location,
                 vertex_auth_header="vertext_test_token",
             )
+        )
 
-        assert exc_info.value.status_code == 400
-        assert "Bad Request" in str(exc_info.value.message)
+        # Request proceeds uncached, with the full prompt and tools intact
+        assert messages == self.sample_messages
+        assert returned_params["tools"] == self.sample_tools
+        assert returned_cache is None
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -641,6 +647,80 @@ class TestContextCachingEndpoints:
 
         assert exc_info.value.status_code == 408
         assert "Timeout error occurred" in str(exc_info.value.message)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "custom_llm_provider", ["gemini", "vertex_ai", "vertex_ai_beta"]
+    )
+    @patch(
+        "litellm.llms.vertex_ai.context_caching.vertex_ai_context_caching.separate_cached_messages"
+    )
+    @patch(
+        "litellm.llms.vertex_ai.context_caching.vertex_ai_context_caching.local_cache_obj"
+    )
+    @patch.object(ContextCachingEndpoints, "async_check_cache")
+    @patch.object(ContextCachingEndpoints, "_get_token_and_url_context_caching")
+    @patch(
+        "litellm.llms.vertex_ai.context_caching.vertex_ai_context_caching.get_async_httpx_client"
+    )
+    async def test_async_check_and_create_cache_http_error(
+        self,
+        mock_get_client,
+        mock_get_token_url,
+        mock_async_check_cache,
+        mock_cache_obj,
+        mock_separate,
+        custom_llm_provider,
+    ):
+        """Test async_check_and_create_cache degrades to uncached when cache creation fails"""
+        # Setup
+        cached_messages = [self.sample_messages[0]]
+        non_cached_messages = [self.sample_messages[1]]
+        mock_separate.return_value = (cached_messages, non_cached_messages)
+
+        mock_cache_obj.get_cache_key.return_value = "test_cache_key"
+        mock_async_check_cache.return_value = None
+        mock_get_token_url.return_value = ("token", "https://test-url.com")
+
+        # Google's rejection for models without explicit context caching support
+        mock_response = MagicMock()
+        mock_response.status_code = 400
+        mock_response.text = (
+            '{"error": {"code": 400, "message": "Model `gemini-1.5-pro` does not '
+            'support explicit context caching.", "status": "INVALID_ARGUMENT"}}'
+        )
+        self.mock_async_client.post = AsyncMock(
+            side_effect=httpx.HTTPStatusError(
+                "Error", request=MagicMock(), response=mock_response
+            )
+        )
+
+        optional_params = self.sample_optional_params.copy()
+        test_project = "test_project"
+        test_location = "us-central1"
+
+        # Execute
+        messages, returned_params, returned_cache = (
+            await self.context_caching.async_check_and_create_cache(
+                messages=self.sample_messages,
+                optional_params=optional_params,
+                api_key="test_key",
+                api_base=None,
+                model="gemini-1.5-pro",
+                client=self.mock_async_client,
+                timeout=30.0,
+                logging_obj=self.mock_logging,
+                custom_llm_provider=custom_llm_provider,
+                vertex_project=test_project,
+                vertex_location=test_location,
+                vertex_auth_header="vertext_test_token",
+            )
+        )
+
+        # Request proceeds uncached, with the full prompt and tools intact
+        assert messages == self.sample_messages
+        assert returned_params["tools"] == self.sample_tools
+        assert returned_cache is None
 
     @pytest.mark.parametrize(
         "custom_llm_provider", ["gemini", "vertex_ai", "vertex_ai_beta"]

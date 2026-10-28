@@ -419,8 +419,25 @@ class ContextCachingEndpoints(VertexBase):
             )
             response.raise_for_status()
         except httpx.HTTPStatusError as err:
-            error_code: Final = err.response.status_code
-            raise VertexAIError(status_code=error_code, message=err.response.text)
+            # The cached prefix is a performance hint LiteLLM manages from cache_control
+            # markers. Google rejects explicit caching for some models (e.g. "Model X
+            # does not support explicit context caching"), so degrade to an uncached
+            # request instead of failing it; generateContent remains authoritative.
+            verbose_logger.warning(
+                "Vertex AI context caching: cachedContents creation failed with status "
+                "%d: %s. Proceeding without explicit context caching.",
+                err.response.status_code,
+                err.response.text,
+            )
+            if tools is not None:
+                optional_params["tools"] = tools
+            if tool_choice is not None:
+                optional_params["tool_choice"] = tool_choice
+            return (
+                messages,
+                optional_params,
+                None,
+            )  # pyright: ignore[reportUnknownVariableType]  # optional_params is an unparameterized dict throughout this legacy module
         except httpx.TimeoutException:
             raise VertexAIError(status_code=408, message="Timeout error occurred.")
 
@@ -575,8 +592,25 @@ class ContextCachingEndpoints(VertexBase):
             )
             response.raise_for_status()
         except httpx.HTTPStatusError as err:
-            error_code: Final = err.response.status_code
-            raise VertexAIError(status_code=error_code, message=err.response.text)
+            # The cached prefix is a performance hint LiteLLM manages from cache_control
+            # markers. Google rejects explicit caching for some models (e.g. "Model X
+            # does not support explicit context caching"), so degrade to an uncached
+            # request instead of failing it; generateContent remains authoritative.
+            verbose_logger.warning(
+                "Vertex AI context caching: cachedContents creation failed with status "
+                "%d: %s. Proceeding without explicit context caching.",
+                err.response.status_code,
+                err.response.text,
+            )
+            if tools is not None:
+                optional_params["tools"] = tools
+            if tool_choice is not None:
+                optional_params["tool_choice"] = tool_choice
+            return (
+                messages,
+                optional_params,
+                None,
+            )  # pyright: ignore[reportUnknownVariableType]  # optional_params is an unparameterized dict throughout this legacy module
         except httpx.TimeoutException:
             raise VertexAIError(status_code=408, message="Timeout error occurred.")
 

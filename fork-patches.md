@@ -1,6 +1,6 @@
 # Fork patch manifest (delta vs upstream v1.106.5, `v1.106.5..HEAD`)
 
-Line numbers are as of the current `main-fork` tip. For modified files they are diff-hunk ranges (`git diff v1.106.5..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 107 files, +8,040 / -197, roughly 67% tests
+Line numbers are as of the current `main-fork` tip. For modified files they are diff-hunk ranges (`git diff v1.106.5..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 115 files, +8,768 / -211, roughly 63% tests
 
 ## Agentic coding clients on the proxy (/v1/messages bridge)
 
@@ -138,6 +138,16 @@ Generic typed-decision API routing over Vertex AI dedicated endpoints. The curre
 
 - `model_prices_and_context_window.json`, `litellm/model_prices_and_context_window_backup.json`: the six `gpt-6.1-terra` rows (`gpt-6.1-terra`, `chatgpt/`, `global.openai.`, `us.openai.`, `github_copilot/`, `bedrock_mantle/openai.`), copied verbatim from upstream main (#48429, #48441, #48450, #48479). No tag carries them yet, not even v1.107.0-rc.2. Drop them and use upstream's rows once the fork moves onto a tag that ships them
 - `model_prices_and_context_window.schema.json`: regenerated with `ci_cd/generate_model_prices_schema.py` for the `cache_creation_input_token_cost_above_12hr*` fields those rows introduce. v1.106.5's cost calculator does not read the 12-hour cache-write tiers, so only the standard rates price requests
+
+## Bedrock Mantle gpt-5.6/gpt-6 chat completions backport
+
+- `litellm/llms/bedrock_mantle/chat/transformation.py` L131-L154: `BedrockMantleChatConfig.map_openai_params` sends `max_completion_tokens` instead of `max_tokens` for the gpt-5.6/gpt-6 reasoning families, whichever spelling the caller used. AWS Mantle (verified live on us-east-1) answers `max_tokens` with 400 `unsupported_parameter` for these models, so a Mantle deployment serving gpt-6.1-terra failed every completion that set a max. Ported verbatim from upstream main (#43982); drop it once the fork rebases onto v1.107.0 or later
+- `tests/unit/llms/bedrock_mantle/chat/test_bedrock_mantle_transformation.py` L147-L181: gpt-5.6/gpt-6 rows send `max_completion_tokens` from either param spelling and carry other params through; `openai.gpt-oss-20b` keeps `max_tokens`
+
+## Vertex AI context caching
+
+- `litellm/llms/vertex_ai/context_caching/vertex_ai_context_caching.py` L422-L440, L595-L613: when the `cachedContents` creation call fails with an HTTP error, log a warning, restore `tools`/`tool_choice` into `optional_params` and return the original messages with no cache instead of raising `VertexAIError`. Google rejects explicit context caching per model (`gemini-4-argon`: "does not support explicit context caching") and Claude Code always sends `cache_control`, so raising failed every request for those models; the uncached request is what should run. Upstream main still raises as of v1.109-dev, so this stays
+- `tests/unit/llms/vertex_ai/context_caching/test_vertex_ai_context_caching.py` L320-L368, L651-L724: `test_check_and_create_cache_http_error` rewritten to the degrade contract (full prompt returned, tools restored, no cache name) and `test_async_check_and_create_cache_http_error` added for the async path; timeout tests keep raising 408
 
 ## Build, ops and misc
 

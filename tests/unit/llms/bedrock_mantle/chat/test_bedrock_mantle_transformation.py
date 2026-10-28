@@ -17,6 +17,7 @@ import httpx
 import pytest
 
 import litellm
+from litellm.llms.bedrock_mantle.chat.transformation import BedrockMantleChatConfig
 from litellm.llms.custom_httpx.http_handler import HTTPHandler
 from tests._vcr_conftest_common import install_live_call_probe, record_vcr_outcome
 
@@ -141,6 +142,41 @@ def _vcr_outcome_gate(request, vcr):
     install_live_call_probe(request, vcr)
     yield
     record_vcr_outcome(request, vcr)
+
+
+@pytest.mark.parametrize(
+    "model",
+    ["openai.gpt-6.1-terra", "openai.gpt-5.6-terra", "us.openai.gpt-6.1-terra"],
+)
+def test_gpt_reasoning_models_send_max_completion_tokens(model):
+    """AWS Mantle rejects ``max_tokens`` for the gpt-5.6/gpt-6 families, so litellm must send the
+    value as ``max_completion_tokens`` no matter which spelling the caller used."""
+    config = BedrockMantleChatConfig()
+
+    for caller_param in ("max_tokens", "max_completion_tokens"):
+        mapped = config.map_openai_params(
+            {caller_param: 100}, {}, model, drop_params=False
+        )
+        assert mapped == {"max_completion_tokens": 100}, f"{model} via {caller_param}: got {mapped}"
+
+
+def test_non_reasoning_mantle_models_keep_max_tokens():
+    """Mantle models outside the gpt-5.6/gpt-6 reasoning families accept ``max_tokens`` as-is."""
+    config = BedrockMantleChatConfig()
+
+    mapped = config.map_openai_params(
+        {"max_tokens": 100}, {}, "openai.gpt-oss-20b", drop_params=False
+    )
+    assert mapped == {"max_tokens": 100}
+
+
+def test_gpt_reasoning_model_carries_extra_params_with_renamed_max_tokens():
+    config = BedrockMantleChatConfig()
+
+    mapped = config.map_openai_params(
+        {"max_tokens": 256, "temperature": 0.5}, {}, "openai.gpt-6.1-terra", drop_params=False
+    )
+    assert mapped == {"max_completion_tokens": 256, "temperature": 0.5}
 
 
 @pytest.fixture(scope="session")

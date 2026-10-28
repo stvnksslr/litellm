@@ -79,6 +79,21 @@ class _CachedContentsNotServedError(VertexAIError):
     pass
 
 
+class _CachedContentsCreationRejectedError(VertexAIError):
+    pass
+
+
+def _warn_cache_creation_rejected(status_code: int, response_text: str) -> None:
+    # Google rejects explicit caching per model ("Model X does not support explicit context caching"),
+    # so the request degrades to uncached and generateContent stays the judge of request validity.
+    verbose_logger.warning(
+        "Vertex AI context caching: cachedContents creation failed with status %d: %s. "
+        "Proceeding without explicit context caching.",
+        status_code,
+        response_text,
+    )
+
+
 def _record_cache_creation_tokens(logging_obj: Logging, created: _CreatedCachedContent) -> None:
     tokens: Final = (created.get("usageMetadata") or {}).get("totalTokenCount") or 0
     logging_obj.vertex_ai_cache_creation_input_tokens = max(tokens, 0)  # rebind-ok: set provider count
@@ -536,8 +551,16 @@ class ContextCachingEndpoints(VertexBase):
             )
             response.raise_for_status()
         except httpx.HTTPStatusError as err:
-            error_code: Final = err.response.status_code
-            raise VertexAIError(status_code=error_code, message=err.response.text)
+            _warn_cache_creation_rejected(err.response.status_code, err.response.text)
+            if tools is not None:
+                optional_params["tools"] = tools
+            if tool_choice is not None:
+                optional_params["tool_choice"] = tool_choice
+            return (
+                messages,
+                optional_params,
+                None,
+            )  # pyright: ignore[reportUnknownVariableType]  # optional_params is an unparameterized dict throughout this legacy module
         except httpx.TimeoutException:
             raise VertexAIError(status_code=408, message="Timeout error occurred.")
 
@@ -687,8 +710,9 @@ class ContextCachingEndpoints(VertexBase):
                 )
                 response.raise_for_status()
             except httpx.HTTPStatusError as err:
-                error_code: Final = err.response.status_code
-                raise VertexAIError(status_code=error_code, message=err.response.text)
+                raise _CachedContentsCreationRejectedError(
+                    status_code=err.response.status_code, message=err.response.text
+                )
             except httpx.TimeoutException:
                 raise VertexAIError(status_code=408, message="Timeout error occurred.")
 
@@ -705,6 +729,9 @@ class ContextCachingEndpoints(VertexBase):
             )
         except _CachedContentsNotServedError:
             verbose_logger.debug("Gemini context caching: %s answers 404. Skipping context caching.", url)
+            return messages, optional_params, None
+        except _CachedContentsCreationRejectedError as err:
+            _warn_cache_creation_rejected(err.status_code, err.message)
             return messages, optional_params, None
         for tool_param in _TOOL_PARAMS:
             optional_params.pop(tool_param, None)

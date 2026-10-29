@@ -1,6 +1,6 @@
-# Fork patch manifest (delta vs upstream v1.106.5, `v1.106.5..HEAD`)
+# Fork patch manifest (delta vs upstream v1.106.6, `v1.106.6..HEAD`)
 
-Line numbers are as of the current `main-fork` tip. For modified files they are diff-hunk ranges (`git diff v1.106.5..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 115 files, +8,768 / -211, roughly 63% tests
+Line numbers are as of the current `main-fork` tip. For modified files they are diff-hunk ranges (`git diff v1.106.6..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 115 files, +8,768 / -211, roughly 63% tests
 
 ## Agentic coding clients on the proxy (/v1/messages bridge)
 
@@ -137,7 +137,7 @@ Generic typed-decision API routing over Vertex AI dedicated endpoints. The curre
 ## GPT-6.1 Terra pricing backport
 
 - `model_prices_and_context_window.json`, `litellm/model_prices_and_context_window_backup.json`: the six `gpt-6.1-terra` rows (`gpt-6.1-terra`, `chatgpt/`, `global.openai.`, `us.openai.`, `github_copilot/`, `bedrock_mantle/openai.`), copied verbatim from upstream main (#48429, #48441, #48450, #48479). No tag carries them yet, not even v1.107.0-rc.2. Drop them and use upstream's rows once the fork moves onto a tag that ships them
-- `model_prices_and_context_window.schema.json`: regenerated with `ci_cd/generate_model_prices_schema.py` for the `cache_creation_input_token_cost_above_12hr*` fields those rows introduce. v1.106.5's cost calculator does not read the 12-hour cache-write tiers, so only the standard rates price requests
+- `model_prices_and_context_window.schema.json`: regenerated with `ci_cd/generate_model_prices_schema.py` for the `cache_creation_input_token_cost_above_12hr*` fields those rows introduce. v1.106.6's cost calculator does not read the 12-hour cache-write tiers, so only the standard rates price requests
 
 ## Bedrock Mantle gpt-5.6/gpt-6 chat completions backport
 
@@ -151,7 +151,7 @@ Generic typed-decision API routing over Vertex AI dedicated endpoints. The curre
 
 ## Build, ops and misc
 
-- `litellm-rust/crates/llms-types/src/providers/anthropic.rs` L237: `dangerous-tool-use-2026-09-03` is unsupported only on `BedrockConverse`. v1.106.2 marked Databricks as supported in the JSON beta map (`0aefd1b8b7`) but kept the Rust mirror rejecting it, so `on_matches_every_config_cell` fails on plain v1.106.5. Ported from upstream main (#46091); drop it once a tag carries that line
+- `litellm-rust/crates/llms-types/src/providers/anthropic.rs` L237: `dangerous-tool-use-2026-09-03` is unsupported only on `BedrockConverse`. v1.106.2 marked Databricks as supported in the JSON beta map (`0aefd1b8b7`) but kept the Rust mirror rejecting it, so `on_matches_every_config_cell` fails on plain v1.106.6. Ported from upstream main (#46091); drop it once a tag carries that line
 - `.github/workflows/fork-docker-build.yml` L1-L93: fork image build, datetime-stamped tags
 - `ui/litellm-dashboard/src/lib/http/schema.d.ts`: generated API schema types
 - `litellm/proxy/_lazy_openapi_snapshot.json`: generated OpenAPI snapshot
@@ -159,6 +159,10 @@ Generic typed-decision API routing over Vertex AI dedicated endpoints. The curre
 ## Absorbed by upstream (no longer carried)
 
 Every drop below was verified by reverting the patch and rerunning its tests or an end-to-end probe
+
+### v1.106.6
+
+Nothing absorbed. The patch release backports #46712, which limits gzip to the dashboard analytics routes and offloads compression in `litellm/proxy/middleware/gzip_middleware.py`. The fork does not touch that file, so the rebase from v1.106.5 applied cleanly and every fork hunk kept its line numbers
 
 ### v1.106.5
 

@@ -1018,6 +1018,7 @@ def test_anthropic_count_tokens_route_accessible_to_internal_users():
 _CLAUDE_CODE_GATEWAY_ROUTES: Final = (
     "/claude_code_gateway/v1/messages",
     "/claude_code_gateway/v1/messages/count_tokens",
+    "/claude_code_gateway/v1/models",
     "/claude_code_gateway/managed/settings",
     "/claude_code_gateway/v1/metrics",
     "/claude_code_gateway/v1/logs",

@@ -572,6 +572,7 @@ class LiteLLMRoutes(enum.Enum):
         "/v1/messages/count_tokens",
         "/claude_code_gateway/v1/messages",
         "/claude_code_gateway/v1/messages/count_tokens",
+        "/claude_code_gateway/v1/models",
         "/v1/skills",
         "/v1/skills/{skill_id}",
         "/claude-code/marketplace.json",

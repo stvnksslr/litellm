@@ -1,6 +1,6 @@
 # Fork patch manifest (delta vs upstream v1.106.6, `v1.106.6..HEAD`)
 
-Line numbers are as of the current `main-fork` tip. For modified files they are diff-hunk ranges (`git diff v1.106.6..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 115 files, +8,768 / -211, roughly 63% tests
+Line numbers are as of the current `main-fork` tip. For modified files they are diff-hunk ranges (`git diff v1.106.6..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 118 files, +8,824 / -213, roughly 63% tests
 
 ## Agentic coding clients on the proxy (/v1/messages bridge)
 
@@ -148,6 +148,13 @@ Generic typed-decision API routing over Vertex AI dedicated endpoints. The curre
 
 - `litellm/llms/vertex_ai/context_caching/vertex_ai_context_caching.py` L422-L440, L595-L613: when the `cachedContents` creation call fails with an HTTP error, log a warning, restore `tools`/`tool_choice` into `optional_params` and return the original messages with no cache instead of raising `VertexAIError`. Google rejects explicit context caching per model (`gemini-4-argon`: "does not support explicit context caching") and Claude Code always sends `cache_control`, so raising failed every request for those models; the uncached request is what should run. Upstream main still raises as of v1.109-dev, so this stays
 - `tests/unit/llms/vertex_ai/context_caching/test_vertex_ai_context_caching.py` L320-L368, L651-L724: `test_check_and_create_cache_http_error` rewritten to the degrade contract (full prompt returned, tools restored, no cache name) and `test_async_check_and_create_cache_http_error` added for the async path; timeout tests keep raising 408
+
+## Claude Code gateway model discovery
+
+- `litellm/proxy/anthropic_endpoints/gateway_endpoints.py` L61, L74, L177-L183: mount the proxy's `model_list` at `GET /claude_code_gateway/v1/models` behind `enable_claude_code_gateway`. Without it FastAPI answered 404 before auth ran, so Claude Desktop (gateway provider) reported a broken provider and never started the device-code sign-in; now it gets 401 unsigned and the caller's own model list once signed in
+- `litellm/proxy/_types.py` L575: `/claude_code_gateway/v1/models` in `anthropic_routes`, so internal users' gateway JWTs and virtual keys pass route checks
+- `tests/unit/proxy/anthropic_endpoints/test_gateway_endpoints.py` L22, L39, L166, L182, L818-L847: 401 without a bearer, 404 with the gateway off, 200 listing only the caller's models; `_gateway_env` takes the caller identity
+- `tests/unit/proxy/auth/test_route_checks.py` L1021: the route is open to `INTERNAL_USER` and `INTERNAL_USER_VIEW_ONLY`
 
 ## Build, ops and misc
 

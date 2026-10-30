@@ -19,6 +19,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from litellm import Router
 from litellm.caching.dual_cache import DualCache
 from litellm.proxy._experimental.mcp_server.gateway_dcr_flow import (
     MintedProxyCredential,
@@ -35,7 +36,7 @@ from litellm.proxy._experimental.mcp_server.outbound_credentials.session_token i
     SessionPrincipal,
     mint_session_refresh_token,
 )
-from litellm.proxy._types import ProxyException
+from litellm.proxy._types import ProxyException, UserAPIKeyAuth
 from litellm.proxy.anthropic_endpoints import gateway_endpoints
 from litellm.proxy.management_endpoints.ui_sso import (
     _get_cli_sso_flow_cache_key,
@@ -162,6 +163,7 @@ def _gateway_env(
     claim_cache: DualCache | None = None,
     minter: _Minter | None = None,
     real_auth: bool = False,
+    caller: UserAPIKeyAuth | None = None,
     extra_settings: Mapping[str, object] = MappingProxyType({}),
 ) -> Iterator[tuple[TestClient, DualCache]]:
     general_settings: Final = {
@@ -177,7 +179,7 @@ def _gateway_env(
     app.dependency_overrides[gateway_endpoints._proxy_credential_minter] = lambda: minter or _Minter()
 
     async def _fake_auth() -> object:
-        return object()
+        return caller or object()
 
     with ExitStack() as stack:
         stack.enter_context(
@@ -813,3 +815,33 @@ def test_messages_gated_by_enable_flag():
     with _gateway_env(enabled=False) as (client, _):
         resp = client.post("/claude_code_gateway/v1/messages", json={"model": "claude-sonnet-4-5", "messages": []})
     assert resp.status_code == 404
+
+
+def test_models_without_a_bearer_is_rejected_by_real_auth():
+    with _gateway_env(real_auth=True) as (client, _), pytest.raises(ProxyException) as exc_info:
+        client.get("/claude_code_gateway/v1/models")
+    assert exc_info.value.code == "401"
+
+
+def test_models_404_when_gateway_disabled():
+    with _gateway_env(enabled=False) as (client, _):
+        resp = client.get("/claude_code_gateway/v1/models")
+    assert resp.status_code == 404
+
+
+def test_models_lists_only_the_callers_models():
+    router: Final = Router(
+        model_list=[
+            {"model_name": name, "litellm_params": {"model": f"openai/{name}", "api_key": "sk-fake"}}
+            for name in ("granted-model", "other-model")
+        ]
+    )
+    with (
+        patch(  # test-quality-ok: model_list reads this proxy_server module global and has no injection seam
+            "litellm.proxy.proxy_server.llm_router", router
+        ),
+        _gateway_env(caller=UserAPIKeyAuth(models=["granted-model"])) as (client, _),
+    ):
+        resp = client.get("/claude_code_gateway/v1/models")
+    assert resp.status_code == 200
+    assert [m["id"] for m in resp.json()["data"]] == ["granted-model"]

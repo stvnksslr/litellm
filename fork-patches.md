@@ -1,6 +1,6 @@
 # Fork patch manifest (delta vs upstream v1.106.6, `v1.106.6..HEAD`)
 
-Line numbers are as of the current `main-fork` tip. For modified files they are diff-hunk ranges (`git diff v1.106.6..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 118 files, +8,824 / -213, roughly 63% tests
+Line numbers are as of the current `main-fork` tip. For modified files they are diff-hunk ranges (`git diff v1.106.6..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 129 files, +8,826 / -239, roughly 63% tests
 
 ## Agentic coding clients on the proxy (/v1/messages bridge)
 
@@ -160,6 +160,7 @@ Generic typed-decision API routing over Vertex AI dedicated endpoints. The curre
 
 - `litellm-rust/crates/llms-types/src/providers/anthropic.rs` L237: `dangerous-tool-use-2026-09-03` is unsupported only on `BedrockConverse`. v1.106.2 marked Databricks as supported in the JSON beta map (`0aefd1b8b7`) but kept the Rust mirror rejecting it, so `on_matches_every_config_cell` fails on plain v1.106.6. Ported from upstream main (#46091); drop it once a tag carries that line
 - `.github/workflows/fork-docker-build.yml` L1-L93: fork image build, datetime-stamped tags
+- `.github/workflows/{auto-close-duplicates,auto_update_price_and_context_window,codeql,create-rc-branch,e2e_record_replay,image-scan,osv-scan,scorecard,stale,sync-together-ai-models,weekly_load_anomaly}.yml`: cron `schedule` triggers removed so nothing runs on a timer in the fork. `auto_update_price_and_context_window.yml` had no other trigger, so it falls back to `workflow_dispatch`
 - `ui/litellm-dashboard/src/lib/http/schema.d.ts`: generated API schema types
 - `litellm/proxy/_lazy_openapi_snapshot.json`: generated OpenAPI snapshot
 

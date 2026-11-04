@@ -708,7 +708,7 @@ class AnthropicResponseContentBlockServerToolUse(LiteLLMBaseModel):
     type: Literal["server_tool_use"] = "server_tool_use"
     id: str
     name: str
-    input: dict[str, Any] = Field(default_factory=dict)
+    input: dict[str, object] = Field(default_factory=dict)
 
 
 class AnthropicWebSearchResultBlock(LiteLLMBaseModel):

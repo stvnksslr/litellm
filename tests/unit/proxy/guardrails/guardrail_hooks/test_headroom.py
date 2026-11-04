@@ -3103,7 +3103,7 @@ async def test_stream_conversion_does_not_leave_stream_options_on_the_request(
         model=converted["model"],
         custom_llm_provider="vertex_ai",
         stream=converted["stream"],
-        stream_options=converted["stream_options"],
+        stream_options=converted.get("stream_options"),
         tools=converted["tools"],
     )
 

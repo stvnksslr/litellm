@@ -234,7 +234,9 @@ impl AnthropicBeta {
             ],
             Self::Compact20260112 => &[BetaProvider::AzureAi, BetaProvider::BedrockConverse],
             Self::ComputerUse20250124 | Self::ComputerUse20251124 | Self::Context1m20250807 => &[],
-            Self::DangerousToolUse20260903 => &[BetaProvider::BedrockConverse],
+            Self::DangerousToolUse20260903 => {
+                &[BetaProvider::BedrockConverse, BetaProvider::Databricks]
+            }
             Self::Effort20251124 => &[BetaProvider::VertexAi],
             Self::FastMode20260201 | Self::Oauth20250420 => &[
                 BetaProvider::AzureAi,

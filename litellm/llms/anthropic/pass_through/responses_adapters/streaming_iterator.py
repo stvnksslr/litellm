@@ -1,6 +1,7 @@
 # What is this?
 ## Translates OpenAI call to Anthropic `/v1/messages` format
 import asyncio
+import json
 from collections import deque
 from collections.abc import AsyncGenerator, Iterator, Mapping
 from typing import TYPE_CHECKING, Any, Final

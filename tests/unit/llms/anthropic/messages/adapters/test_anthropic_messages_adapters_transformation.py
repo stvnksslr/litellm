@@ -4663,7 +4663,7 @@ def test_translate_anthropic_tools_to_openai_leaves_tools_deepcopy_cannot_copy_u
     translated_tools, _ = adapter.translate_anthropic_tools_to_openai(tools=[tool])
 
     assert [translated["function"]["name"] for translated in translated_tools] == ["lint"]
-    assert translated_tools[0]["function"]["parameters"]["input_examples"] == tool["input_examples"]
+    assert "input_examples" not in translated_tools[0]["function"]["parameters"]
     assert set(tool["input_schema"]) == {"type", "properties"}
 
 

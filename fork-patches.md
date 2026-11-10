@@ -1,6 +1,6 @@
 # Fork patch manifest (delta vs upstream v1.108.4, `v1.108.4..HEAD`)
 
-Line numbers are as of the current `main-fork` tip. For modified files they are diff-hunk ranges (`git diff v1.108.4..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 127 files, +8,832 / -236, roughly 63% tests
+Line numbers are as of the current `main-fork` tip. For modified files they are diff-hunk ranges (`git diff v1.108.4..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 125 files, +9,258 / -221, roughly 60% tests
 
 ## Agentic coding clients on the proxy (/v1/messages bridge)
 
@@ -138,6 +138,13 @@ Generic typed-decision API routing over Vertex AI dedicated endpoints. The curre
 
 - `model_prices_and_context_window.json`, `litellm/model_prices_and_context_window_backup.json`: the six `gpt-6.1-terra` rows (`gpt-6.1-terra`, `chatgpt/`, `global.openai.`, `us.openai.`, `github_copilot/`, `bedrock_mantle/openai.`), copied verbatim from upstream main (#48429, #48441, #48450, #48479). v1.108.4 still does not carry them. Drop them and use upstream's rows once the fork moves onto a tag that ships them
 - `model_prices_and_context_window.schema.json`: regenerated with `ci_cd/generate_model_prices_schema.py` for the `cache_creation_input_token_cost_above_12hr*` fields those rows introduce. v1.108.4's cost calculator does not read the 12-hour cache-write tiers, so only the standard rates price requests
+
+## Gemini 4 Carbon pricing backport
+
+- `model_prices_and_context_window.json`, `litellm/model_prices_and_context_window_backup.json`: the four `gemini-4-carbon` rows (`gemini/`, `vertex_ai/`, `vertex_ai/...-cyber-permissive`, `github_copilot/`), copied from upstream main (#50931, #50942, #50951, #51012). v1.108.4 does not carry them. Drop them and use upstream's rows once the fork moves onto a tag that ships them
+- `tests/unit/test_model_prices_and_context_window.py` L686-L706: upstream's `test_gemini_4_carbon_rows_share_the_gemini_3_search_allowance_in_both_cost_map_copies` from #50951, copied verbatim
+
+Upstream main dropped the legacy `max_tokens` field from every row (#48471), but the 1.108 line still requires it on `github_copilot` rows. Both backports (carbon and gpt-6.1-terra) therefore add `max_tokens` equal to `max_output_tokens` on each row, which matches about 85% of the 1.108 map's chat rows. Before this, the terra row broke five `github_copilot` tests in `test_model_prices_and_context_window.py`. Drop the field together with the rows
 
 ## Bedrock Mantle gpt-5.6/gpt-6 chat completions tests
 

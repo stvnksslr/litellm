@@ -1,6 +1,6 @@
 # Fork patch manifest (delta vs upstream v1.109.1, `v1.109.1..HEAD`)
 
-Line numbers are as of the current `main-fork` tip. For modified files they are diff-hunk ranges (`git diff v1.109.1..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 126 files, +8,662 / -230, roughly 60% tests
+Line numbers are as of the current `main-fork` tip. For modified files they are diff-hunk ranges (`git diff v1.109.1..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 127 files, +8,687 / -231, roughly 60% tests
 
 ## Agentic coding clients on the proxy (/v1/messages bridge)
 
@@ -11,6 +11,7 @@ Line numbers are as of the current `main-fork` tip. For modified files they are 
 - `litellm/llms/anthropic/messages/adapters/transformation.py` L330, L1323, L1328-L1330, L1383, L1435, L1447: expansion is opt-in via `emulate_tool_search`, set only by the bridge; write-back callers (guardrails, shadow eval) keep upstream's `tool_reference` passthrough
 - `litellm/llms/anthropic/messages/adapters/transformation.py` L1543-L1573: `_count_openai_tool_calls`; one tool message per tool result
 - `litellm/llms/anthropic/messages/adapters/transformation.py` L1715-L1732: compaction-block insertion; truncated tool calls map to `max_tokens` finish reason
+- `litellm/proxy/guardrails/anthropic_sse.py` L12, L18, L42, L187-L196, L208, L211-L212: `_require_parseable_tool_calls` checks the rewritten and source responses before a guardrail rebuilds a stream, so a tool input that is not JSON still fails the rebuild (and a failed stream still gets its upstream error alone) instead of the adapter silently dropping that tool call
 - `litellm/llms/anthropic/messages/adapters/tool_search.py` L1-L79: new, tool-search emulation; reference extraction, `forwards_tool`, `expand_tool_references` building the `<functions>` block
 - `litellm/llms/anthropic/messages/adapters/handler.py` L29-L34, L60: import classifier + reasoning overrides and hosted-tool filter
 - `litellm/llms/anthropic/messages/adapters/handler.py` L685-L701: strip Anthropic hosted tools from forwarded tools; drop dangling `tool_choice`/`parallel_tool_calls` when tools emptied. This is the only hosted-tool filter on the chat path, so the Responses bridge in `completion_extras` never sees them

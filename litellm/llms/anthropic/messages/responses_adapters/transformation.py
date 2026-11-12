@@ -802,7 +802,7 @@ class LiteLLMAnthropicToResponsesAPIAdapter:
         call_id: Final = str(item.get("id") or f"srvtoolu_{uuid.uuid4().hex}")
         return (
             AnthropicResponseContentBlockServerToolUse(
-                id=call_id, name=ANTHROPIC_HOSTED_TOOLS.WEB_SEARCH.value, input={"query": query}
+                type="server_tool_use", id=call_id, name=ANTHROPIC_HOSTED_TOOLS.WEB_SEARCH.value, input={"query": query}
             ).model_dump(),
             dict(build_anthropic_web_search_tool_result_block(tool_use_id=call_id, results=())),
         )

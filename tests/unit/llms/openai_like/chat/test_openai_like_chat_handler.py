@@ -8,6 +8,7 @@ import pytest
 
 from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler, HTTPHandler
 from litellm.llms.openai_like.chat.handler import make_call, make_sync_call
+from litellm.types.utils import ModelResponseStream
 
 _FAKE_STREAMED_REPLY: Final = {
     "id": "chatcmpl-fake-stream",
@@ -85,7 +86,7 @@ def _streamed_reply(request: httpx.Request) -> httpx.Response:
     return httpx.Response(200, stream=httpx.ByteStream(body.encode()))
 
 
-async def _streamed_chunks(sync_stream: bool) -> list[dict[str, object]]:
+async def _streamed_chunks(sync_stream: bool) -> list[object]:
     call_args: Final = {
         "api_base": "https://openai-like.example/v1/chat/completions",
         "headers": {},
@@ -105,4 +106,5 @@ async def _streamed_chunks(sync_stream: bool) -> list[dict[str, object]]:
 async def test_stream_keeps_unicode_line_separators_inside_the_delta(sync_stream: bool) -> None:
     chunks: Final = await _streamed_chunks(sync_stream)
 
-    assert "".join(str(chunk["text"]) for chunk in chunks) == _LINE_SEPARATED_TEXT
+    deltas: Final = tuple(chunk.choices[0].delta for chunk in chunks if isinstance(chunk, ModelResponseStream))
+    assert "".join(delta.content or "" for delta in deltas) == _LINE_SEPARATED_TEXT

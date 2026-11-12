@@ -1,5 +1,5 @@
 import litellm
-from litellm.llms.vertex_ai.vertex_ai_partner_models.llama3.transformation import VertexAILlama3Config
+from litellm.llms.vertex_ai.vertex_ai_partner_models.llama.transformation import VertexAILlama3Config
 from litellm.llms.vertex_ai.vertex_model_garden.transformation import VertexAIModelGardenOpenAIConfig
 from litellm.types.utils import LlmProviders
 from litellm.utils import ProviderConfigManager, get_optional_params

@@ -119,7 +119,6 @@ def anthropic_error_frame_exception(error_type: str, message: str, status_code: 
     return frame_error
 
 
-
 @dataclass(frozen=True, slots=True)
 class AnthropicWebSearchResult:
     """One entry of an Anthropic ``web_search_tool_result`` content block."""
@@ -164,16 +163,17 @@ def build_anthropic_web_search_tool_result_block(
     Spec: https://docs.anthropic.com/en/api/web-search-tool
     """
     return AnthropicResponseContentBlockWebSearchToolResult(
+        type="web_search_tool_result",
         tool_use_id=tool_use_id,
-        content=tuple(  # pyright: ignore[reportArgumentType]  # pydantic coerces the tuple into the List field
+        content=[
             AnthropicWebSearchResultBlock(
                 url=result.url,
                 title=result.title,
                 page_age=result.page_age,
                 snippet=result.snippet,
-            )
+            ).model_dump()
             for result in results
-        ),
+        ],
     ).model_dump()
 
 

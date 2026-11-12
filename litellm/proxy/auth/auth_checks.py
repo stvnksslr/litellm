@@ -787,7 +787,9 @@ def _is_model_budget_exempt(
         deployments = _get_deployments_for_model(model=model_name, llm_router=llm_router, team_id=team_id)
         if not deployments:
             return False
-        if not all((deployment.get("model_info") or {}).get("skip_budget_checks") is True for deployment in deployments):
+        if not all(
+            (deployment.get("model_info") or {}).get("skip_budget_checks") is True for deployment in deployments
+        ):
             return False
 
     return True

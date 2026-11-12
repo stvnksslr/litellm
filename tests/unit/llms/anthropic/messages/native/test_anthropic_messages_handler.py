@@ -318,7 +318,7 @@ _HEALED_HISTORY: Final = [
 
 @pytest.mark.asyncio
 async def test_anthropic_messages_heals_nameless_tool_use_before_dispatch():
-    from litellm.llms.anthropic.pass_through.messages import handler
+    from litellm.llms.anthropic.messages.native import handler
 
     msgs = _poisoned_history()
     captured = {}
@@ -347,7 +347,7 @@ async def test_anthropic_messages_heals_nameless_tool_use_before_dispatch():
 
 
 def test_sync_anthropic_messages_handler_heals_nameless_tool_use_before_dispatch():
-    from litellm.llms.anthropic.pass_through.messages import handler
+    from litellm.llms.anthropic.messages.native import handler
 
     captured = {}
 
@@ -1081,7 +1081,7 @@ def test_gate_translates_when_supported_endpoints_absent(monkeypatch):
 
 def _bridge_stubs(monkeypatch):
     """Patch both translation bridges so the routing decision can be read back."""
-    from litellm.llms.anthropic.pass_through.messages import handler
+    from litellm.llms.anthropic.messages.native import handler
 
     monkeypatch.setattr(
         handler.LiteLLMMessagesToResponsesAPIHandler,
@@ -1099,7 +1099,7 @@ WEB_SEARCH_TOOL = {"type": "web_search_20250305", "name": "web_search", "max_use
 
 
 def _route(monkeypatch, **overrides):
-    from litellm.llms.anthropic.pass_through.messages.handler import (
+    from litellm.llms.anthropic.messages.native.handler import (
         anthropic_messages_handler,
     )
 

@@ -1,4 +1,4 @@
-from litellm.llms.vertex_ai.vertex_ai_partner_models.llama3.transformation import VertexAILlama3Config
+from litellm.llms.vertex_ai.vertex_ai_partner_models.llama.transformation import VertexAILlama3Config
 
 
 class VertexAIModelGardenOpenAIConfig(VertexAILlama3Config):

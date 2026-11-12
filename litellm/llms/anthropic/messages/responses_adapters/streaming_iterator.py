@@ -234,7 +234,7 @@ class AnthropicResponsesStreamWrapper:
         block_idx: Final = self._next_block_index()
         self._web_search_block_id = search_id
         server_tool_use: Final = AnthropicResponseContentBlockServerToolUse(
-            id=search_id, name=ANTHROPIC_HOSTED_TOOLS.WEB_SEARCH.value
+            type="server_tool_use", id=search_id, name=ANTHROPIC_HOSTED_TOOLS.WEB_SEARCH.value, input={}
         ).model_dump()
         self._chunk_queue.extend(
             (

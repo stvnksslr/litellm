@@ -143,7 +143,9 @@ def _auth_failure_log_message(e: Exception) -> str:
 
 class UserAPIKeyAuthExceptionHandler:
     @staticmethod
-    def _append_requested_model_to_budget_error(e: Exception, request: Request, request_data: dict, route: str) -> None:
+    def _append_requested_model_to_budget_error(
+        e: Exception, request: Request, request_data: dict[str, object], route: str
+    ) -> None:
         """
         Budget checks fire during auth, before the request is routed, so most
         BudgetExceededError messages never name the model the caller asked for.
@@ -226,11 +228,11 @@ class UserAPIKeyAuthExceptionHandler:
                 request_route=route,
             )
         else:
-            UserAPIKeyAuthExceptionHandler._append_requested_model_to_budget_error(
-                e=e, request=request, request_data=request_data, route=route
-            )
             request_mapping: Final = as_str_mapping(request_data)
             request_context: Final[dict[str, object]] = dict(request_mapping) if request_mapping is not None else {}
+            UserAPIKeyAuthExceptionHandler._append_requested_model_to_budget_error(
+                e=e, request=request, request_data=request_context, route=route
+            )
             # raise the exception to the caller
             requester_ip: Final = get_request_ip_address(
                 request=request,

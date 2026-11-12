@@ -14,9 +14,9 @@ class _FakeStreamingResponse:
     def __init__(self, lines: list[str]) -> None:
         self._lines = lines
 
-    async def aiter_lines(self):
+    async def aiter_text(self):
         for line in self._lines:
-            yield line
+            yield f"{line}\n\n"
 
 
 class _FakeAsyncClient:

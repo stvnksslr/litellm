@@ -2,7 +2,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from enum import Enum
 from typing import Final, Literal, TypeAlias
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict
 from typing_extensions import NotRequired, ReadOnly, Required, TypedDict
 
 from litellm.types.llms.base import LiteLLMBaseModel
@@ -702,15 +702,6 @@ class AnthropicResponseContentBlockToolUse(LiteLLMBaseModel):
     model_config = ConfigDict(extra="allow")  # Allow provider_specific_fields
 
 
-class AnthropicResponseContentBlockServerToolUse(LiteLLMBaseModel):
-    """A server-side tool invocation the provider ran, e.g. hosted web search."""
-
-    type: Literal["server_tool_use"] = "server_tool_use"
-    id: str
-    name: str
-    input: dict[str, object] = Field(default_factory=dict)
-
-
 class AnthropicWebSearchResultBlock(LiteLLMBaseModel):
     type: Literal["web_search_result"] = "web_search_result"
     url: str
@@ -722,14 +713,6 @@ class AnthropicWebSearchResultBlock(LiteLLMBaseModel):
     # Additive to the spec: page text has nowhere to live once encrypted_content
     # is empty, and dropping it leaves the client with no evidence to answer from.
     snippet: str = ""
-
-
-class AnthropicResponseContentBlockWebSearchToolResult(LiteLLMBaseModel):
-    """Paired with the ``server_tool_use`` block sharing its ``tool_use_id``."""
-
-    type: Literal["web_search_tool_result"] = "web_search_tool_result"
-    tool_use_id: str
-    content: list[AnthropicWebSearchResultBlock]
 
 
 class AnthropicResponseContentBlockThinking(LiteLLMBaseModel):

@@ -88,7 +88,6 @@ from litellm.proxy.auth.auth_checks import (  # noqa: F401  # legacy module expo
     key_access_group_grants_model,
     key_model_aliases_for_auth_check,
     model_max_budget_of,
-    request_skips_budget_checks,
     resolve_and_validate_end_user_id,
     resolve_default_end_user_budget,
     route_skips_budget_checks,

@@ -9761,9 +9761,7 @@ async def _get_access_group_models(
         team_object=team_object,
         resource_field="access_model_names",
     )
-    return _AccessGroupModels(
-        team=tuple(dict.fromkeys(team_group_models)), key=tuple(dict.fromkeys(key_group_models))
-    )
+    return _AccessGroupModels(team=tuple(dict.fromkeys(team_group_models)), key=tuple(dict.fromkeys(key_group_models)))
 
 
 async def _agent_access_group_visible_models(

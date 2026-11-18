@@ -8,6 +8,7 @@ export const emptyAccessGroupFormValues: AccessGroupCreateFormValues = {
   name: "",
   description: "",
   modelIds: [],
+  listedModelNames: [],
   mcpServerIds: [],
   mcpToolPermissions: {},
   agentIds: [],
@@ -18,6 +19,7 @@ export const buildAccessGroupCreateBody = (values: AccessGroupCreateFormValues):
   access_group_name: values.name.trim(),
   ...(values.description.trim() !== "" && { description: values.description.trim() }),
   ...(values.modelIds.length > 0 && { access_model_names: values.modelIds }),
+  ...(values.listedModelNames.length > 0 && { listed_model_names: values.listedModelNames }),
   ...(values.mcpServerIds.length > 0 && { access_mcp_server_ids: values.mcpServerIds }),
   ...(values.mcpServerIds.length > 0 &&
     Object.keys(values.mcpToolPermissions).length > 0 && { mcp_tool_permissions: values.mcpToolPermissions }),

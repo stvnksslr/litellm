@@ -44,6 +44,7 @@ from litellm.llms.base_llm.base_utils import type_to_response_format_param
 from litellm.redis.stores.spend_counters import (
     shadow_eval_counter,
 )
+from litellm.types.llms.anthropic import is_anthropic_web_search_tool
 from litellm.types.llms.base import LiteLLMBaseModel
 from litellm.types.management_endpoints.auto_router_endpoints import ShadowEvalDirection
 from litellm.types.utils import SHADOW_EVAL_JUDGE_CALL_ORIGIN, SHADOW_EVAL_ROUTER_CALL_ORIGIN
@@ -408,7 +409,9 @@ def _request_has_hosted_web_search(request: Mapping[str, object]) -> bool:
         return True
     tools: Final = request.get("tools")
     return isinstance(tools, Sequence) and any(
-        isinstance(tool, Mapping) and tool.get("type") != "function" and is_web_search_tool_responses(tool)
+        isinstance(tool, Mapping)
+        and tool.get("type") != "function"
+        and (is_web_search_tool_responses(tool) or is_anthropic_web_search_tool(tool))
         for tool in tools
     )
 

@@ -234,6 +234,7 @@ LAZY_FEATURES: Final[tuple[LazyFeature, ...]] = (
             "/cohere/",
             "/comprehendmedical",
             "/cursor/",
+            "/decider/",
             "/deepgram/",
             "/eu.assemblyai/",
             "/fal_ai/",

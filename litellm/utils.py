@@ -10393,6 +10393,10 @@ class ProviderConfigManager:
             return litellm.PerplexityDecisionsConfig()
         if provider == LlmProviders.TYPESAFE:
             return litellm.TypeSafeDecisionsConfig()
+        if provider == LlmProviders.VERTEX_AI:
+            from litellm.llms.vertex_ai.decisions.transformation import VertexAIDecisionsConfig
+
+            return VertexAIDecisionsConfig()
         if provider == LlmProviders.NACE:
             return litellm.NaceDecisionsConfig()
         if provider == LlmProviders.OPENROUTER:
@@ -10967,12 +10971,6 @@ class ProviderConfigManager:
             )
 
             return NvidiaNimPassthroughConfig()
-        elif LlmProviders.VERTEX_AI == provider:
-            from litellm.llms.vertex_ai.passthrough.transformation import (
-                VertexAIDeciderPassthroughConfig,
-            )
-
-            return VertexAIDeciderPassthroughConfig()
         return None
 
     @staticmethod

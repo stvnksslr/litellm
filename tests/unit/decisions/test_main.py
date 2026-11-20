@@ -1586,6 +1586,7 @@ _PROVIDERS_WHOSE_CHAT_MODELS_ALSO_DECIDE: Final = frozenset(
         LlmProviders.AZURE.value,
         LlmProviders.OPENROUTER.value,
         LlmProviders.HOSTED_VLLM.value,
+        LlmProviders.VERTEX_AI.value,
         LlmProviders.LM_STUDIO.value,
         LlmProviders.OLLAMA.value,
         LlmProviders.OLLAMA_CHAT.value,

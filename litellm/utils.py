@@ -9866,6 +9866,12 @@ def _get_model_cost_entry_for_provider_config(
     return {}
 
 
+def _vertex_ai_decisions_config() -> BaseDecisionsConfig:
+    from litellm.llms.vertex_ai.decisions.transformation import VertexAIDecisionsConfig
+
+    return VertexAIDecisionsConfig()
+
+
 class ProviderConfigManager:
     # Dictionary mapping for O(1) provider lookup
     # Stores tuples of (factory_function, needs_model_parameter)
@@ -10393,10 +10399,6 @@ class ProviderConfigManager:
             return litellm.PerplexityDecisionsConfig()
         if provider == LlmProviders.TYPESAFE:
             return litellm.TypeSafeDecisionsConfig()
-        if provider == LlmProviders.VERTEX_AI:
-            from litellm.llms.vertex_ai.decisions.transformation import VertexAIDecisionsConfig
-
-            return VertexAIDecisionsConfig()
         if provider == LlmProviders.NACE:
             return litellm.NaceDecisionsConfig()
         if provider == LlmProviders.OPENROUTER:
@@ -10426,6 +10428,7 @@ class ProviderConfigManager:
             LlmProviders.AZURE_AI,
             LlmProviders.EU_JEV,
             LlmProviders.PARALLEL_AI,
+            LlmProviders.VERTEX_AI,
         ):
             configs: Final = {
                 LlmProviders.EMPIRIOLABS: litellm.EmpirioLabsDecisionsConfig,
@@ -10434,6 +10437,7 @@ class ProviderConfigManager:
                 LlmProviders.AZURE_AI: litellm.AzureAIDecisionsConfig,
                 LlmProviders.EU_JEV: litellm.EuJevDecisionsConfig,
                 LlmProviders.PARALLEL_AI: litellm.ParallelAIDecisionsConfig,
+                LlmProviders.VERTEX_AI: _vertex_ai_decisions_config,
             }
             return configs[provider]()
         return None

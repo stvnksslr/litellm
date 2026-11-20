@@ -79,14 +79,23 @@ class _CachedContentsNotServedError(VertexAIError):
     pass
 
 
-class _CachedContentsCreationRejectedError(VertexAIError):
+class _CachedContentsCreationRejectedError(_CachedContentsNotServedError):
     pass
 
 
-def _cache_creation_rejects_the_request(status_code: int) -> bool:
+def _cache_creation_error(err: httpx.HTTPStatusError) -> VertexAIError:
     # Google answers 400 when a model does not support explicit context caching or the content is below the cache
     # minimum. That request still works uncached, while auth, quota and server errors must surface.
-    return status_code == 400
+    if err.response.status_code != 400:
+        return VertexAIError(status_code=err.response.status_code, message=err.response.text)
+    _warn_cache_creation_rejected(err.response.status_code, err.response.text)
+    return _CachedContentsCreationRejectedError(status_code=err.response.status_code, message=err.response.text)
+
+
+def _raise_unless_rejected_for_the_model(err: httpx.HTTPStatusError) -> None:
+    error: Final = _cache_creation_error(err)
+    if not isinstance(error, _CachedContentsCreationRejectedError):
+        raise error
 
 
 def _warn_cache_creation_rejected(status_code: int, response_text: str) -> None:
@@ -556,9 +565,7 @@ class ContextCachingEndpoints(VertexBase):
             )
             response.raise_for_status()
         except httpx.HTTPStatusError as err:
-            if not _cache_creation_rejects_the_request(err.response.status_code):
-                raise VertexAIError(status_code=err.response.status_code, message=err.response.text)
-            _warn_cache_creation_rejected(err.response.status_code, err.response.text)
+            _raise_unless_rejected_for_the_model(err)
             if tools is not None:
                 optional_params["tools"] = tools
             if tool_choice is not None:
@@ -718,11 +725,7 @@ class ContextCachingEndpoints(VertexBase):
                 )
                 response.raise_for_status()
             except httpx.HTTPStatusError as err:
-                if not _cache_creation_rejects_the_request(err.response.status_code):
-                    raise VertexAIError(status_code=err.response.status_code, message=err.response.text)
-                raise _CachedContentsCreationRejectedError(
-                    status_code=err.response.status_code, message=err.response.text
-                )
+                raise _cache_creation_error(err)
             except httpx.TimeoutException:
                 raise VertexAIError(status_code=408, message="Timeout error occurred.")
 
@@ -739,9 +742,6 @@ class ContextCachingEndpoints(VertexBase):
             )
         except _CachedContentsNotServedError:
             verbose_logger.debug("Gemini context caching: %s answers 404. Skipping context caching.", url)
-            return messages, optional_params, None
-        except _CachedContentsCreationRejectedError as err:
-            _warn_cache_creation_rejected(err.status_code, err.message)
             return messages, optional_params, None
         for tool_param in _TOOL_PARAMS:
             optional_params.pop(tool_param, None)

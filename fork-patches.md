@@ -1,43 +1,38 @@
 # Fork patch manifest (delta vs upstream v1.110.2, `v1.110.2..HEAD`)
 
-Line numbers are as of the current `main-fork` tip. For modified files they are diff-hunk ranges (`git diff v1.110.2..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 124 files, +8,628 / -179, roughly 60% tests
+Line numbers are as of the current `main-fork` tip. For modified files they are diff-hunk ranges (`git diff v1.110.2..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 115 files, +7,399 / -147, roughly 60% tests
 
 ## Agentic coding clients on the proxy (/v1/messages bridge)
 
-- `litellm/llms/anthropic/messages/adapters/transformation.py` L12, L153, L178-L186, L351-L365: import upstream `drop_non_python_regex_patterns` (v1.110.0 moved it to `json_schema_utils`) and the tool_search helpers; `_model_supports_web_search_options` gates web_search_options reduction
-- `litellm/llms/anthropic/messages/adapters/transformation.py` L972-L976, L986, L1016: pass `defer_loading` through tool translation; drop hosted tools; sanitize tool input_schema via upstream `drop_non_python_regex_patterns` (upstream only applies it inside `OpenAIGPTConfig` for provider `openai`, so hosted_vllm / Model Garden targets of the bridge need this call)
-- `litellm/llms/anthropic/messages/adapters/transformation.py` L1264, L1276, L1281, L1284: forward deferred tools only when a tool_reference names them (or server-side search requested); web_search tool becomes `web_search_options` when model supports it
-- `litellm/llms/anthropic/messages/adapters/transformation.py` L631, L697, L1452-L1457, L1492-L1494, L1530, L1534, L1539, L1545-L1551, L1560, L1572: tool_reference blocks in messages expand to `<functions>` via `_tool_result_content`. Tools translate before messages so the catalog exists, and v1.110.0's `_tool_message` (which keeps `is_error`) threads the catalog through
-- `litellm/llms/anthropic/messages/adapters/transformation.py` L433, L1431, L1436-L1438: expansion is opt-in via `emulate_tool_search`, set only by the bridge; write-back callers (guardrails, shadow eval) keep upstream's `tool_reference` passthrough
-- `litellm/llms/anthropic/messages/adapters/transformation.py` L1669-L1682, L1687, L1696-L1699: `_count_openai_tool_calls`; one tool message per tool result
-- `litellm/llms/anthropic/messages/adapters/transformation.py` L1841-L1844, L1855-L1858: compaction-block insertion; truncated tool calls map to `max_tokens` finish reason
-- `litellm/proxy/guardrails/anthropic_sse.py` L12, L18, L42, L187-L196, L208, L211-L212: `_require_parseable_tool_calls` checks the rewritten and source responses before a guardrail rebuilds a stream, so a tool input that is not JSON still fails the rebuild (and a failed stream still gets its upstream error alone) instead of the adapter silently dropping that tool call
+- `litellm/llms/anthropic/messages/adapters/transformation.py` L12, L153, L178-L186, L351-L365: imports for upstream `drop_non_python_regex_patterns` (in `json_schema_utils` since v1.110.0) and the tool_search helpers; `_model_supports_web_search_options` gates the web_search -> `web_search_options` reduction to models that map it, since upstream sets it unconditionally and some targets list it as unsupported
+- `litellm/llms/anthropic/messages/adapters/transformation.py` L972-L976, L986, L1016: keep the Anthropic-only tool keys `defer_loading`, `allowed_callers` and `input_examples` out of the function parameters (upstream merges unknown keys into them), and sanitize each tool `input_schema` with upstream `drop_non_python_regex_patterns`, which upstream only applies for provider `openai`, so hosted_vllm and Model Garden targets of the bridge need this call
+- `litellm/llms/anthropic/messages/adapters/transformation.py` L1264, L1276, L1281, L1284: forward a deferred tool only when a tool_reference names it (or server-side search was requested); a web_search tool becomes `web_search_options` only when the model supports it
+- `litellm/llms/anthropic/messages/adapters/transformation.py` L631, L697, L1465, L1468, L1492-L1494, L1530, L1534, L1539, L1545-L1551, L1560, L1572: tool_reference blocks in tool results expand to a `<functions>` block via `_tool_result_content`. Upstream already translates tools before messages, so the patch only passes the referenced names into upstream's tool translation and the catalog into upstream's message translation and its `_tool_message`
+- `litellm/llms/anthropic/messages/adapters/transformation.py` L433, L1431, L1436-L1438: expansion is opt-in via `emulate_tool_search`, set only by the bridge; write-back callers keep upstream's `tool_reference` passthrough. The deferred-tool filter above is not gated by it, so a guardrail that writes the request back also loses unreferenced deferred tools
+- `litellm/llms/anthropic/messages/adapters/transformation.py` L1669-L1682, L1687, L1696-L1699: parse each tool call's arguments and drop a call whose arguments are cut off mid-string (upstream's repair only closes brackets and raises there); `_count_openai_tool_calls`
+- `litellm/llms/anthropic/messages/adapters/transformation.py` L1841-L1844, L1855-L1858: a dropped tool call maps the stop reason to `max_tokens`
+- `litellm/proxy/guardrails/anthropic_sse.py` L12, L18, L42, L187-L196, L208, L211-L212: `_require_parseable_tool_calls` checks the rewritten and source responses before a guardrail rebuilds a stream, so a tool input that is not JSON still fails the rebuild (and a failed stream still gets its upstream error alone) instead of the adapter silently dropping that tool call. Upstream's own guardrail tests fail without it
 - `litellm/llms/anthropic/messages/adapters/tool_search.py` L1-L79: new, tool-search emulation; reference extraction, `forwards_tool`, `expand_tool_references` building the `<functions>` block
-- `litellm/llms/anthropic/messages/adapters/handler.py` L33-L38, L65: import classifier + reasoning overrides and hosted-tool filter
-- `litellm/llms/anthropic/messages/adapters/handler.py` L825-L841: strip Anthropic hosted tools from forwarded tools; drop dangling `tool_choice`/`parallel_tool_calls` when tools emptied. This is the only hosted-tool filter on the chat path, so the Responses bridge in `completion_extras` never sees them
-- `litellm/llms/anthropic/messages/adapters/handler.py` L887-L892: apply model-garden reasoning overrides then GLM classifier overrides before routing
+- `litellm/llms/anthropic/messages/adapters/handler.py` L32-L41, L68, L560-L567: imports, and `_drops_anthropic_tool`
+- `litellm/llms/anthropic/messages/adapters/handler.py` L836-L855: strip Anthropic server-side tools (`code_execution`, `web_fetch`, `tool_search_tool`) from the forwarded tools for every target, and the client-executed `bash`, `text_editor` and `memory` tools only when upstream's `is_claude_tool_target` says the target is not Claude; drop a dangling `tool_choice`/`parallel_tool_calls` when no tool is left. This is the only hosted-tool filter on the chat path
+- `litellm/llms/anthropic/messages/adapters/handler.py` L901-L906: apply model-garden reasoning overrides then GLM classifier overrides before routing
 - `litellm/llms/anthropic/messages/native/handler.py` L18, L22, L44, L51, L100-L136: `_declares_responses_endpoint` / `_deployment_supports_responses_api` from model_info, base_model or model cost
-- `litellm/llms/anthropic/messages/native/handler.py` L205, L209-L216, L226-L231, L819-L824: `_should_route_to_responses_api` takes the request `tools` and routes a hosted web search to the Responses API when the deployment serves it. It keeps upstream's positional signature and its `_BridgeTarget` call site, so the patch is only the extra argument and branch
-- `litellm/llms/anthropic/messages/responses_adapters/transformation.py` L9, L12, L32-L36, L48, L55, L60, L76-L127, L814-L846, L949: hosted web-search helpers (`as_responses_item_mapping`, `web_search_call_query`, `_url_citations`); `translate_response` keeps upstream's output loop and adds a `web_search_call` branch emitting server_tool_use -> web_search_tool_result, with url citations from the final message attached to the last search result
-- `litellm/llms/anthropic/messages/responses_adapters/transformation.py` L531-L532, L556, L558-L565, L570-L575, L746-L750, L754, L756-L757, L865, L868-L872, L881, L914: translate web_search tool to Responses `web_search` inside upstream's `_translate_tool_to_responses_api`; Responses-API `tool_choice` conversion using translated tool list
-- `litellm/llms/anthropic/messages/responses_adapters/streaming_iterator.py` L4, L20-L24, L37-L42, L49-L50, L165-L168: web-search imports and state on the wrapper
+- `litellm/llms/anthropic/messages/native/handler.py` L205, L209-L216, L226-L231, L819-L824: `_should_route_to_responses_api` takes the request `tools` and routes a hosted web search to the Responses API when the deployment serves it (upstream only routes `openai`, prefix-strip cases and xAI there). It keeps upstream's positional signature and its `_BridgeTarget` call site
+- `litellm/llms/anthropic/messages/responses_adapters/transformation.py` L9, L12, L32-L35, L46, L48, L55, L60, L76-L127, L814-L846, L949: hosted web-search helpers (`as_responses_item_mapping`, `web_search_call_query`, `_url_citations`); `translate_response` keeps upstream's output loop and adds a `web_search_call` branch emitting server_tool_use -> web_search_tool_result, with url citations from the final message attached to the last search result
+- `litellm/llms/anthropic/messages/responses_adapters/transformation.py` L531-L532, L556, L558-L565, L570-L575, L746-L750, L754, L756-L757, L865, L868-L872, L881, L914: translate the web_search tool to Responses `web_search` inside upstream's `_translate_tool_to_responses_api` (this also changes `web_search_preview` to `web_search` for OpenAI itself); Responses-API `tool_choice` conversion using the translated tool list
+- `litellm/llms/anthropic/messages/responses_adapters/streaming_iterator.py` L4, L20-L23, L31, L37-L42, L49-L50, L165-L168: web-search imports and state on the wrapper
 - `litellm/llms/anthropic/messages/responses_adapters/streaming_iterator.py` L217-L268, L341-L344, L450-L452, L526: record search sources from citations; queue `server_tool_use` + paired `web_search_tool_result` blocks, the latter at response completion
-- `litellm/llms/anthropic/common_utils.py` L9, L70, L72: imports for web-search result types
-- `litellm/llms/anthropic/common_utils.py` L140-L197: new `AnthropicWebSearchResult`, `web_search_result_from_source`, `build_anthropic_web_search_tool_result_block` shared by interception callback and Responses bridge
-- `litellm/types/llms/anthropic.py` L708-L720: new `AnthropicWebSearchResultBlock`. The `server_tool_use` and `web_search_tool_result` blocks use upstream's own frozen `AnthropicResponseContentBlockServerToolUse` and `AnthropicResponseContentBlockWebSearchToolResult`, so fork callers pass `type` and `input` explicitly and dump each result block to a mapping
-- `litellm/types/llms/anthropic.py` L851-L875: `is_anthropic_hosted_tool_type` and `is_anthropic_web_search_tool` predicates, used by the bridge handlers, the Responses adapter and shadow eval (the chat adapter keeps upstream's `_is_web_search_tool`)
-- `litellm/integrations/shadow_eval_logger.py` L47, L412-L414: hosted web search detection also matches the raw Anthropic tool via `is_anthropic_web_search_tool` (upstream's `is_web_search_tool_responses` catches the dated `web_search_*` types but not the bare `{"name": "web_search"}` hosted tool Claude Code sends), since the bridge only emits `web_search_options` for models that support it and shadow eval would otherwise sample and bill those requests
+- `litellm/llms/anthropic/common_utils.py` L9, L55, L139-L163: `web_search_result_from_source` maps a Responses citation or search source to upstream's `SearchResult`, and `build_anthropic_web_search_tool_result_block` delegates to upstream's `WebSearchTransformation.build_web_search_tool_result_block`. Only the Responses bridge calls them
+- `litellm/types/llms/anthropic.py` L838-L876: `is_anthropic_hosted_tool_type` (server-side tools only), `is_anthropic_client_executed_tool_type` and `is_anthropic_web_search_tool`, used by the chat bridge handler and the Responses routing and adapter (the chat adapter keeps upstream's `_is_web_search_tool`)
 - `litellm/llms/anthropic/messages/adapters/streaming_iterator.py` L947-L950, L1186-L1189, L1512, L1522-L1523: while a tool_use block is open, skip whitespace-only text chunks. Qwen streams `"\n"` between parallel tool calls before the previous call's closing `}`, which used to open a nameless tool_use that every later Claude turn on that history rejects
-- `litellm/llms/anthropic/common_utils.py` L2305-L2391: `repair_nameless_tool_use_blocks_in_anthropic_messages` heals histories already poisoned by that bug. A nameless tool_use is dropped with its tool_result in the next user turn, or renamed `unknown_tool` when dropping would empty either message
-- `litellm/llms/anthropic/messages/native/utils.py` L11, L253-L255: `normalize_native_messages` runs the repair after tool_use id normalization. Upstream v1.108.0 factored the sanitize pipeline of `prepare_native_messages` into that function, which also feeds the OpenAI and Vertex count_tokens paths and `convertible_blocks`, so native Vertex/Anthropic pass-through, the bridges and token counting all see the repaired history
-- `litellm/litellm_core_utils/prompt_templates/factory.py` L3454-L3458: `anthropic_messages_pt` runs the same repair, covering OpenAI-format clients replaying a tool call with an empty `function.name`
+- `litellm/llms/anthropic/common_utils.py` L2271-L2357: `repair_nameless_tool_use_blocks_in_anthropic_messages` heals histories already poisoned by that bug. A nameless tool_use is dropped with its tool_result in the next user turn, or renamed `unknown_tool` when dropping would empty either message
+- `litellm/llms/anthropic/messages/native/utils.py` L11, L253-L255: `normalize_native_messages` runs the repair after tool_use id normalization. `prepare_native_messages` calls it at both `/v1/messages` entry points before any bridge dispatch, and it also feeds the OpenAI and Vertex count_tokens paths and `convertible_blocks`
 - `litellm/llms/openai_like/chat/handler.py` L20-L23, L71, L111: stream via `OpenAIChatCompletionStreamingHandler` over upstream's `aiter_sse_lines`/`iter_sse_lines` splitter so `reasoning_content` deltas and mid-stream errors surface
 - `litellm/litellm_core_utils/token_counter.py` L774-L786: `defer_loading`, `allowed_callers` and `input_examples` count as mapped Anthropic tool keys, because the fork's bridge strips them instead of merging them into the function parameters. Upstream's `test_token_counter_counts_anthropic_tools_as_sent_to_chat_template_families` holds the counter and the bridge to the same shape
 
-## GPT-5.6 family enablement
+## GPT-5.x family enablement
 
-- `litellm/llms/openai/chat/gpt_reasoning_transformation.py` L18, L143, L148, L152: upstream's `_GPT_SERIES_VERSION` unanchored and applied with `search`, so `gpt-<major>.<minor>` is found anywhere in a custom deployment name; `is_model_gpt_5_2/5_4` reuse `_gpt_series_version`
-- `litellm/llms/azure/chat/gpt_reasoning_transformation.py` L15-L23, L103, L112-L124: floor `max_completion_tokens` at 3 (`AZURE_GPT5_MIN_COMPLETION_TOKENS`) so one-token availability probes get empty-with-`length` instead of 400
+- `litellm/llms/openai/chat/gpt_reasoning_transformation.py` L18, L143, L148, L152: upstream's `_GPT_SERIES_VERSION` unanchored and applied with `search`, so `gpt-<major>.<minor>` is found anywhere in a custom deployment name; `is_model_gpt_5_2/5_4` reuse `_gpt_series_version`. Upstream's alternative is pinning `model_info.mode: responses` per deployment
 
 ## Spend accuracy
 
@@ -46,42 +41,39 @@ Line numbers are as of the current `main-fork` tip. For modified files they are 
 
 ## Budget controls
 
-- `litellm/proxy/auth/auth_checks.py` L186, L723-L737, L788-L965: `_get_deployments_for_model` (aliases, wildcard routes), `_is_model_budget_exempt` (`model_info.skip_budget_checks` on all deployments), request-model resolution, fallback-target reachability, `should_skip_budget_checks_for_model`
-- `litellm/proxy/auth/auth_checks.py` L5019-L5076: `_get_listed_models_from_access_groups` (see Model discovery)
-- `litellm/proxy/auth/user_api_key_auth.py` L86, L97, L2789, L2794, L3293-L3294, L3299, L4121, L5025-L5030: call `_should_skip_budget_checks` with `valid_token` in the JWT, virtual-key, centralized common-checks and custom-auth paths, replacing the inline zero-cost checks. Upstream's `request_skips_budget_checks` import is dropped since the fork no longer calls it here
-- `litellm/proxy/auth/user_api_key_auth.py` L4352, L4354, L4362-L4374: `_should_skip_budget_checks` keeps upstream's route and MCP discovery skips, derives `team_id` from `valid_token` for upstream's team-scoped model resolution and passes request `fallbacks` (validated list only) into `should_skip_budget_checks_for_model`
+- `litellm/proxy/auth/auth_checks.py` L20, L46, L185, L722-L727, L778-L915: `model_info.skip_budget_checks` exemption and the fallback reachability gate. Deployments, aliases and fallbacks are read only through `registry()` and `settings()`, which `Router` and the router's `RoutingContext` both answer, fallback keys match through the public `fallback_chain`, and the walk over fallbacks is an iterative fixed point that fails closed when it does not converge. `should_skip_budget_checks_for_model` skips only when every group the request can reach, its own `fallbacks` included, is explicitly zero-cost or exempt
+- `litellm/proxy/auth/auth_checks.py` L1273-L1274, L1280-L1286: upstream's `request_skips_budget_checks` takes the caller's team and team aliases and asks `should_skip_budget_checks_for_model` instead of `is_model_cost_zero`, so `common_checks`, the guardrail tag-budget path and every auth path follow the same rule. A zero-cost model with a paid fallback therefore no longer skips budgets anywhere
+- `litellm/proxy/auth/user_api_key_auth.py` L2797-L2802, L3310-L3315, L4138, L4370, L4379-L4386: upstream's JWT, virtual-key and centralized call sites pass the token's `team_id` and `team_model_aliases` along
+- `litellm/proxy/auth/user_api_key_auth.py` L5037-L5043: the custom-auth path asks `request_skips_budget_checks` instead of a bare `is_model_cost_zero`, so it honors the exemption and the fallback gate like the other paths
 - `litellm/proxy/auth/fallback_budget.py` L44, L135-L137: upstream's router-time fallback budget check also admits `skip_budget_checks` targets, so an exempt fallback is not refused for an over-budget caller
+- `litellm/proxy/auth/auth_checks.py` L4977-L5034: `_get_listed_models_from_access_groups` (see Model discovery)
 
 ## Vertex Model Garden coding models
 
-- `litellm/litellm_core_utils/prompt_templates/common_utils.py` L1304-L1339: `merge_system_messages_to_front` folds all system messages into one leading message
+- `litellm/litellm_core_utils/prompt_templates/common_utils.py` L1304-L1339: `merge_system_messages_to_front` folds every system message into one leading text-only message. Upstream's `merge_consecutive_system_messages(system_messages_first(...))` is not a substitute: it keeps image parts and empty text in the system content and leaves a `developer` message as a second instruction message, while Vertex MaaS takes one leading system message
 - `litellm/llms/vertex_ai/vertex_ai_partner_models/main.py` L12-L15, L224: merge system messages on partner-models dispatch
 - `litellm/llms/vertex_ai/vertex_model_garden/main.py` L20, L24-L26, L28, L128-L130: merge system messages on model garden route
-- `litellm/llms/vertex_ai/vertex_model_garden/transformation.py` L1-L13: new `VertexAIModelGardenOpenAIConfig`, declares `reasoning_effort` on top of `VertexAILlama3Config`
-- `litellm/utils.py` L5351-L5363: drop `stream_options` in `pre_process_non_default_params` unless `stream is True`; keeps only what upstream's `normalize_responses_api_stream_options` forwards so the Responses bridge contract holds
+- `litellm/llms/vertex_ai/vertex_model_garden/transformation.py` L1-L13: new `VertexAIModelGardenOpenAIConfig`, declares `reasoning_effort` on top of `VertexAILlama3Config`. Upstream reaches the same result when every Model Garden deployment sets `allowed_openai_params: [reasoning_effort]`, so this can go once the deployments carry that
 - `litellm/utils.py` L10103-L10108: `ProviderConfigManager` returns model-garden config for `openai/` Vertex prefix, which `get_supported_openai_params` picks up before its own provider branches
-- `litellm/llms/anthropic/messages/adapters/model_garden_reasoning.py` L1-L91: new, Qwen/GLM family detection; Qwen gets `chat_template_kwargs.enable_thinking: false` and effort mapped to low/medium/xhigh; GLM defaults to `low`, requested tier collapsed to low/high. Both replace a summary-wrapped effort with a plain tier
+- `litellm/utils.py` L5351-L5363: drop `stream_options` in `pre_process_non_default_params` unless `stream is True`; keeps only what upstream's `normalize_responses_api_stream_options` forwards so the Responses bridge contract holds
+- `litellm/llms/anthropic/messages/adapters/model_garden_reasoning.py` L1-L91: new, Qwen/GLM family detection; Qwen gets `chat_template_kwargs.enable_thinking: false` and effort mapped to low/medium/xhigh; GLM defaults to `low`, requested tier collapsed to low/high. Both replace a summary-wrapped effort with a plain tier. The family match takes any `vertex_ai` or `hosted_vllm` model whose name contains `qwen` or `glm`, MaaS Qwen included
 - `litellm/llms/anthropic/messages/adapters/claude_code_classifier.py` L1-L43: new, detect classifier request by `</block>` stop sequence; floor GLM `max_tokens` at 4096
 
-## Decider (SystemOne) pass-through routing
+## Vertex AI decider endpoints (SystemOne decisions provider)
 
-Generic typed-decision API routing over Vertex AI dedicated endpoints. The current serving model is Eikos; the route is keyed on the LiteLLM model group (`VertexAIModelSet` name), so the Vertex model can be replaced or upgraded without gateway changes.
+Typed-decision models on Vertex AI dedicated endpoints serve through upstream's decisions API (`POST /v1/systemone`), which validates the request, enforces key and team model access, and prices the answer. The route is keyed on the LiteLLM model group (the `VertexAIModelSet` name), so the serving model can change without gateway changes. A deployment looks like `model: vertex_ai/openai/decider` with `api_base` set to the endpoint's `.../invoke/v1` URL; set `model_info.mode: decisions` so health checks send a decisions request
 
-- `litellm/llms/vertex_ai/passthrough/transformation.py` L1-L145: new `VertexAIDeciderPassthroughConfig`, SystemOne typed-decision pass-through for invoke-mode Vertex deployments: URL join is `api_base + /<endpoint>` (the deployment `api_base` ends at the container's `/invoke/v1` prefix), auth via `VertexBase` OAuth (Workload Identity or `vertex_credentials`), and non-streaming responses map SystemOne `usage.input_tokens`/`output_tokens` onto `prompt_tokens`/`completion_tokens`. The response's own `model` field is a server-side weight path, so it is not used for attribution
-- `litellm/llms/vertex_ai/passthrough/__init__.py` L1-L3: exports
-- `litellm/utils.py` L10970-L10975: `ProviderConfigManager.get_provider_passthrough_config` returns the config for `LlmProviders.VERTEX_AI`
-- `litellm/proxy/pass_through_endpoints/llm_passthrough_endpoints.py` L4625-L4825: new `/decider/{endpoint:path}` route + `handle_decider_passthrough_router_model`: body `model` (or `?model=`) must name a router model group; relay through `ProxyBaseLLMRequestProcessing.base_passthrough_process_llm_request` so auth metadata, hooks, logging and budgets apply; leading `v1/` stripped against the api_base; deployment `litellm_params` win over caller-sent routing keys (`api_base`/`api_key`/`vertex_*`) so per-region load balancing holds
-- `litellm/proxy/_lazy_features.py` L237: `/decider/` prefix on the `llm_passthrough` lazy slot so the router activates on first use
-- `litellm/proxy/_types.py` L435: `/decider` in `LiteLLMRoutes.mapped_pass_through_routes`, so route checks treat it as an LLM API route
-- `tests/unit/proxy/pass_through_endpoints/test_decider_pass_through_endpoints.py` L1-L308: route and config tests: URL join, usage mapping, bearer injection, `v1/` strip, metadata isolation, query-param model, unknown-group rejection
+- `litellm/llms/vertex_ai/decisions/transformation.py` L1-L37: new `VertexAIDecisionsConfig`, upstream's TypeSafe wire format (which the decider container speaks) with no default `api_base` or env fallback, and a Google OAuth token from the deployment's `vertex_credentials`/`vertex_project` as the bearer unless an `api_key` is set. The token source is injectable
+- `litellm/utils.py` L10396-L10399: `ProviderConfigManager.get_provider_decisions_config` returns it for `LlmProviders.VERTEX_AI`
+- `tests/unit/decisions/test_main.py` L1589: `vertex_ai` joins the providers exempt from shipping an `evaluation`-mode cost map row, like `hosted_vllm`, since decider endpoints are self-hosted and have no catalog entry
 
 ## Model discovery and access groups
 
-- `litellm/proxy/utils.py` L10100, L10104, L10115, L10252-L10256, L10260-L10263, L10266-L10269, L10275-L10282, L10288-L10290: team with access groups bounded to `_get_listed_models_from_access_groups`; no fall-through to all proxy models. v1.108.0 split `_get_access_group_models` into an `_AccessGroupModels(team, key)` pair and only adds team-group models to a key whose model check is skipped (`config` or `all-team-models`). The fork keeps that rule for keys and keeps its own team rule, so a team whose model list is empty but which has access groups is still restricted to its groups plus the key's groups
-- `litellm/proxy/auth/auth_checks.py` L4982-L5039: `_get_listed_models_from_access_groups` reads `listed_model_names` from team/key access groups
-- `litellm/proxy/auth/model_checks.py` L244-L249, L262: strip `no-default-models` sentinel from granted list; dedupe wildcard + concrete entries
+- `litellm/proxy/utils.py` L10100, L10104, L10252-L10256, L10260-L10263, L10266-L10269, L10284-L10286: team with access groups bounded to `_get_listed_models_from_access_groups`; no fall-through to all proxy models. v1.108.0 split `_get_access_group_models` into an `_AccessGroupModels(team, key)` pair and only adds team-group models to a key whose model check is skipped (`config` or `all-team-models`). The fork keeps that rule for keys and keeps its own team rule, so a team whose model list is empty but which has access groups is still restricted to its groups plus the key's groups
+- `litellm/proxy/auth/auth_checks.py` L4977-L5034: `_get_listed_models_from_access_groups` reads `listed_model_names` from team/key access groups
+- `litellm/proxy/auth/model_checks.py` L244-L249, L262: strip the `no-default-models` sentinel from the granted list
 - `litellm/models/access_group.py` L19: `listed_model_names` field on access group table model
-- `litellm/types/access_group.py` L11, L24, L45: `listed_model_names` on create/update request and response models
+- `litellm/types/access_group.py` L11, L24, L45: `listed_model_names` on create/update request and response models. It is required on the response model, which is why three upstream dashboard test fixtures carry it
 - `litellm/proxy/management_endpoints/access_group_endpoints.py` L571, L671: wire field through create/update handlers
 - `litellm/proxy/schema.prisma` L1592, `schema.prisma` L1592: `listed_model_names String[]` column, identical in all three schema copies (`litellm-proxy-extras/litellm_proxy_extras/schema.prisma` included, upstream CI checks they match)
 - `litellm-proxy-extras/litellm_proxy_extras/migrations/20260715120000_add_listed_model_names_to_access_group_table/migration.sql` L1-L3: matching migration
@@ -96,7 +88,7 @@ Generic typed-decision API routing over Vertex AI dedicated endpoints. The curre
 - `src/app/(dashboard)/access-groups/_components/access-group-create/mapper.ts`: send `listed_model_names` when non-empty
 - `src/app/(dashboard)/access-groups/_components/types.ts`: `listedModelNames` on shared type
 - `src/app/(dashboard)/hooks/accessGroups/useEditAccessGroup.ts`: `listed_model_names` on API types
-- `src/app/(dashboard)/access-groups/_components/access-group-create/AccessGroupCreateDialog.tsx`: "Models shown in /v1/models" field on the create dialog
+- `src/app/(dashboard)/access-groups/_components/access-group-create/AccessGroupCreateDialog.tsx`: "Models shown in /v1/models" field on the create dialog (hard-coded English where its neighbours use `t(...)`)
 - `src/components/add_model/advanced_settings.tsx`: skip-budget-checks switch on add-model advanced settings
 - `src/components/add_model/handle_add_model_submit.tsx`: map `skip_budget_checks` into `model_info`
 - `src/components/ModelInfoEditForm.tsx`: skip-budget-checks field in edit form and read-only display
@@ -106,70 +98,78 @@ Generic typed-decision API routing over Vertex AI dedicated endpoints. The curre
 
 - `tests/unit/proxy/auth/test_user_api_key_auth.py` L284-L402: requested model appended to budget errors (`_append_requested_model_to_budget_error`)
 - `tests/unit/litellm_core_utils/prompt_templates/test_litellm_core_utils_prompt_templates_common_utils.py` L21, L1016-L1046: system message merging
-- `tests/unit/llms/anthropic/messages/adapters/test_anthropic_messages_adapters_transformation.py` L1464-L1516: truncated tool calls dropped, intact ones kept; L4932-L5136: tool_reference expansion; L6380-L6441: Anthropic-only tool params kept out of the forwarded schema
+- `tests/unit/llms/anthropic/messages/adapters/test_anthropic_messages_adapters_transformation.py` L1464-L1516: truncated tool calls dropped, intact ones kept; L4932: `input_examples` kept out of the forwarded parameters; L5077-L5173: tool_reference expansion beside upstream's passthrough tests; L6413-L6474: Anthropic-only tool params kept out of the forwarded schema
 - `tests/unit/llms/anthropic/messages/adapters/test_claude_code_classifier.py` L1-L73: classifier detection and max_tokens floor
 - `tests/unit/llms/anthropic/messages/adapters/test_claude_code_request_shapes.py` L1-L259: stage-1/stage-2/probe/main-loop request shapes over fixtures
-- `tests/unit/llms/anthropic/messages/adapters/test_handler_hosted_tool_stripping.py` L1-L187: hosted tool stripping and dangling tool_choice
-- `tests/unit/llms/anthropic/messages/adapters/test_handler_output_config_passthrough.py` L68, L72, L224-L326, L481-L562: output config stripping, prompt cache forwarding
+- `tests/unit/llms/anthropic/messages/adapters/test_handler_hosted_tool_stripping.py` L1-L217: server-side tool stripping, client-executed tools kept on Claude targets, dangling tool_choice
+- `tests/unit/llms/anthropic/messages/adapters/test_handler_output_config_passthrough.py` L68, L72, L224-L326, L481-L562: `TestQwenGlmThinkingDisable` and `TestGlmClassifierMaxTokensFloor`
 - `tests/unit/llms/anthropic/messages/adapters/test_model_garden_reasoning.py` L1-L148: Qwen/GLM reasoning defaults and tier mapping
 - `tests/unit/llms/anthropic/messages/adapters/test_tool_search.py` L1-L101: reference expansion and deferred tool forwarding
+- `tests/unit/llms/anthropic/messages/adapters/test_streaming_iterator_tool_args.py` L719-L816: whitespace text between parallel tool call arguments keeps the tool_use block whole
 - `tests/unit/llms/anthropic/messages/native/test_anthropic_messages_handler.py` L286-L371: nameless tool_use healing before dispatch; L917, L1085-L1230: responses-endpoint routing gate
 - `tests/unit/llms/anthropic/messages/responses_adapters/test_responses_adapters_streaming_iterator.py` L821-L1038: streaming web-search block emission
-- `tests/unit/llms/anthropic/messages/responses_adapters/test_responses_adapters_transformation.py` L905-L943, L2518-L2684: web_search tool translation, tool_choice; prompt cache breakpoints
-- `tests/unit/llms/azure/chat/test_azure_gpt_reasoning_transformation.py` L80-L156: Azure min-token floor; 1.25x cache-write price resolution
+- `tests/unit/llms/anthropic/messages/responses_adapters/test_responses_adapters_transformation.py` L905-L943, L2518-L2684: web_search tool translation and tool_choice
+- `tests/unit/llms/anthropic/test_anthropic_common_utils.py` L4910-L5118: nameless tool_use repair
 - `tests/unit/llms/openai/test_is_model_gpt_5_model.py` L242-L263: gpt-5.x version detection anywhere in custom deployment names
 - `tests/unit/llms/openai_like/chat/test_openai_like_handler.py` L1-L124: reasoning passthrough streaming
 - `tests/unit/llms/openai_like/chat/test_openai_like_chat_handler.py` L11, L89, L109-L110: upstream's unicode line separator test reads the delta from the fork's `ModelResponseStream` chunks instead of the Databricks iterator's `text` field
+- `tests/unit/llms/vertex_ai/decisions/test_transformation.py` L1-L101: decider calls the dedicated endpoint with a Google OAuth token from a service-account key, prefers a configured `api_key`, rejects a missing `api_base` (plus an empty `__init__.py`)
 - `tests/unit/llms/vertex_ai/test_vertex_system_message_merge.py` L1-L108: system message merging
-- `tests/unit/llms/vertex_ai/vertex_model_garden/test_vertex_model_garden_transformation.py` L1-L47: reasoning_effort declaration and config resolution
+- `tests/unit/llms/vertex_ai/vertex_model_garden/test_vertex_model_garden_transformation.py` L1-L47: reasoning_effort declaration and config resolution (plus an empty `__init__.py`)
 - `tests/unit/proxy/auth/test_auth_checks_object_access_and_lookup.py` L11891-L11940: listed-models resolution from access groups
 - `tests/unit/proxy/auth/test_custom_auth_end_user_budget.py` L406-L447: custom-auth path honors budget-exempt models
-- `tests/unit/proxy/auth/test_fallback_budget.py` L321-L329: exempt paid fallback target allowed for an over-budget key
-- `tests/unit/proxy/auth/test_model_budget_exempt.py` L1-L565: per-model budget exemption matrix
-- `tests/unit/proxy/auth/test_model_checks.py` L2487-L2571: sentinel strip and wildcard dedupe in model list
-- `tests/unit/proxy/guardrails/guardrail_hooks/test_headroom.py` L3152-L3184: stream_options dropped on non-streaming conversion
+- `tests/unit/proxy/auth/test_fallback_budget.py` L9, L322-L348: exempt paid fallback target allowed for an over-budget key, through a `Router` and through the `RoutingContext` the router passes
+- `tests/unit/proxy/auth/test_model_budget_exempt.py` L1-L541: per-model budget exemption matrix, fallback reachability, and upstream's skip predicate refusing a zero-cost model with a paid fallback
+- `tests/unit/proxy/auth/test_model_checks.py` L2487-L2510: sentinel strip with access-group models
 - `tests/unit/proxy/hooks/test_proxy_track_cost_callback.py` L2669-L2731: failure log model resolution
-- `tests/unit/proxy/management_endpoints/test_access_group_endpoints.py` L30, L47, L94, L113, L225-L243: listed_model_names in create/update payloads
+- `tests/unit/proxy/management_endpoints/test_access_group_endpoints.py` L30, L47, L94, L113, L225, L229-L243: listed_model_names in create/update payloads
 - `tests/unit/proxy/utils/helpers/test_model_access.py` L380-L432: access-group listed-models bounding
 - `tests/unit/test_utils.py` L11798-L11845: stream_options drop unless streaming
-- `tests/unit/llms/anthropic/test_anthropic_common_utils.py` L4910-L5118: nameless tool_use repair and the shared web-search result block builder
-- `tests/unit/llms/anthropic/messages/adapters/test_streaming_iterator_tool_args.py` L719-L816: whitespace text between parallel tool call arguments keeps the tool_use block whole
-- `tests/unit/litellm_core_utils/prompt_templates/test_litellm_core_utils_prompt_templates_factory.py` L9307-L9334: `anthropic_messages_pt` drops a nameless tool call and its result
-- Fixtures: `tests/unit/llms/anthropic/pass_through/adapters/fixtures/claude_code_2_1_266/`: recorded Claude Code 2.1.266 payloads (main_loop, main_loop_title_no_thinking, probe_stage1_sonnet5, stage1, stage2, tool_search_stage1, tool_search_stage2)
-- Dashboard fixtures: `AccessGroupsPage.test.tsx`, `AccessGroupEditModal.integration.test.tsx`, `useAccessGroups.test.ts`, `AccessGroupsDetailsPage.test.tsx`, `AccessGroupCreateDialog.test.tsx`, `mapper.test.ts`, `model_info_view.test.tsx`: upstream fixtures carry the fork's required `listed_model_names`
+- Fixtures: `tests/unit/llms/anthropic/messages/adapters/fixtures/claude_code_2_1_266/`: recorded Claude Code 2.1.266 payloads (main_loop, main_loop_title_no_thinking, probe_stage1_sonnet5, stage1, stage2, tool_search_stage1, tool_search_stage2)
+- Dashboard fixtures: `AccessGroupsPage.test.tsx`, `AccessGroupEditModal.integration.test.tsx`, `useAccessGroups.test.ts`, `AccessGroupsDetailsPage.test.tsx`, `AccessGroupCreateDialog.test.tsx`, `mapper.test.ts`, and `model_info_view.integration.test.tsx` (which also carries `skip_budget_checks` and tells the two switches apart): upstream fixtures carry the fork's required `listed_model_names`
 
 `test_handler_hosted_tool_stripping.py::test_web_search_options_still_set_for_models_that_map_it` registers its own web-search-capable Gemini entry, since v1.104.0's map no longer flags `gemini/gemini-2.0-flash`
 
 
 ## Gemini 4 Carbon pricing backport
 
-- `model_prices_and_context_window.json`, `litellm/model_prices_and_context_window_backup.json`: the four `gemini-4-carbon` rows (`gemini/`, `vertex_ai/`, `vertex_ai/...-cyber-permissive`, `github_copilot/`), copied from upstream main (#50931, #50942, #50951, #51012). v1.110.0 does not carry them. Drop them and use upstream's rows once the fork moves onto a tag that ships them
+- `model_prices_and_context_window.json`, `litellm/model_prices_and_context_window_backup.json`: the four `gemini-4-carbon` rows (`gemini/`, `vertex_ai/`, `vertex_ai/...-cyber-permissive`, `github_copilot/`), copied from upstream main (#50931, #50942, #50951, #51012). v1.110.2 does not carry them. Drop them and use upstream's rows once the fork moves onto a tag that ships them
 - `tests/unit/test_model_prices_and_context_window.py` L961-L969: the Google carbon rows carry `supports_continuation` in both cost map copies
 - `tests/unit/test_model_prices_and_context_window.py` L972-L990: upstream's `test_gemini_4_carbon_rows_share_the_gemini_3_search_allowance_in_both_cost_map_copies` from #50951, copied verbatim
 
 Upstream main no longer requires the legacy `max_tokens` field (#48471), so the backported rows leave it out. v1.110.0 reads `supports_continuation` (`litellm.supports_continuation`), so the `gemini/`, `vertex_ai/` and cyber-permissive rows carry it again, as upstream main's rows do
 
-## Bedrock Mantle gpt-5.6/gpt-6 chat completions tests
-
-- `tests/unit/llms/bedrock_mantle/chat/test_bedrock_mantle_transformation.py` L20, L147-L181: gpt-5.6/gpt-6 rows send `max_completion_tokens` from either param spelling and carry other params through; `openai.gpt-oss-20b` keeps `max_tokens`. v1.108.0 ships the `map_openai_params` change itself (#43982) but no unit test for it, so the fork keeps these as a regression guard
-
 ## Vertex AI context caching
 
-- `litellm/llms/vertex_ai/context_caching/vertex_ai_context_caching.py` L82-L96, L555-L564, L715-L717, L735-L737: when the `cachedContents` creation call fails with an HTTP error, `_warn_cache_creation_rejected` logs a warning and the request goes out uncached with the original messages and `tools`/`tool_choice` instead of raising `VertexAIError`. The sync path restores the tools it already popped. The async path raises `_CachedContentsCreationRejectedError` out of upstream's single-flight `lookup_or_create` and degrades beside upstream's 404 skip, before the tools are popped. Google rejects explicit context caching per model (`gemini-4-argon`: "does not support explicit context caching") and Claude Code always sends `cache_control`, so raising failed every request for those models; the uncached request is what should run. Upstream still raises as of v1.109.1, so this stays
-- `tests/unit/llms/vertex_ai/context_caching/test_vertex_ai_context_caching.py` L463-L510, L758-L837: `test_check_and_create_cache_http_error` rewritten to the degrade contract (full prompt returned, tools restored, no cache name) and `test_async_check_and_create_cache_http_error` added for the async path; timeout tests keep raising 408
-- `tests/unit/llms/vertex_ai/context_caching/test_known_cached_contents.py` L336-L343: upstream's `test_async_create_http_error_surfaces_its_status_code` became `test_async_create_http_error_degrades_to_an_uncached_request`, asserting the fork's contract
+- `litellm/llms/vertex_ai/context_caching/vertex_ai_context_caching.py` L82-L100, L559-L570, L721-L725, L743-L745: when the `cachedContents` creation call fails with a 400, which Google answers for a model without explicit caching support (`gemini-4-argon`: "does not support explicit context caching") or content below the cache minimum, `_warn_cache_creation_rejected` logs a warning and the request goes out uncached with the original messages and `tools`/`tool_choice`. Every other status (401, 403, 429, 5xx) raises `VertexAIError` as upstream does. The sync path restores the tools it already popped. The async path raises `_CachedContentsCreationRejectedError` out of upstream's single-flight `lookup_or_create` and degrades beside upstream's 404 skip, before the tools are popped. Claude Code always sends `cache_control`, so raising on the 400 failed every request for those models. Upstream still raises as of v1.110.2
+- `tests/unit/llms/vertex_ai/context_caching/test_vertex_ai_context_caching.py` L463, L473, L476-L482, L489-L490, L505-L541, L543, L791-L870: the sync and async 400 tests assert the degrade contract (full prompt returned, tools restored, no cache name), and 401, 403, 429 and 503 still raise on the sync path; timeout tests keep raising 408
+- `tests/unit/llms/vertex_ai/context_caching/test_known_cached_contents.py` L349-L361: an async 400 for the model degrades to an uncached request, next to upstream's restored `test_async_create_http_error_surfaces_its_status_code`
 
 
 ## Build, ops and misc
 
 - `.github/workflows/fork-docker-build.yml` L1-L93: fork image build, datetime-stamped tags
 - `.github/workflows/{auto-close-duplicates,codeql,create-rc-branch,e2e_record_replay,image-scan,interactions-spec-canary,osv-scan,scorecard,stale,test-integration}.yml`: cron `schedule` triggers removed so nothing runs on a timer in the fork
-- `ui/litellm-dashboard/src/lib/http/schema.d.ts`: generated API schema types
-- `litellm/proxy/_lazy_openapi_snapshot.json`: generated OpenAPI snapshot
+- `ui/litellm-dashboard/src/lib/http/schema.d.ts`: generated API schema types (`listed_model_names`)
+- `litellm/proxy/_lazy_openapi_snapshot.json`: generated OpenAPI snapshot (`listed_model_names`)
 
 ## Absorbed by upstream (no longer carried)
 
 Every drop below was verified by reverting the patch and rerunning its tests or an end-to-end probe
+
+### Fork cleanup on v1.110.2
+
+A review of every patch against v1.110.2 removed or reshaped these. Each drop was checked by restoring upstream's code and rerunning the fork's and upstream's tests
+
+- `/decider` pass-through (`litellm/llms/vertex_ai/passthrough/`, the route in `llm_passthrough_endpoints.py`, its `_lazy_features.py` and `_types.py` entries, `test_decider_pass_through_endpoints.py`): replaced by the `vertex_ai` decisions provider on upstream's `/v1/systemone`. The route relayed any path to any router group, and a model named only in `?model=` skipped the key's model access check. The `/v1/evaluate`, `/v1/sessions` and `/health` relays went with it
+- `litellm/llms/azure/chat/gpt_reasoning_transformation.py` and its tests: upstream already turns the 400 a tiny `max_completion_tokens` gets into an empty `finish_reason: "length"` response (`azure.py`, `openai/common_utils.py`)
+- `tests/unit/llms/bedrock_mantle/chat/test_bedrock_mantle_transformation.py`: upstream's own Mantle tests cover the gpt-5.6/gpt-6 `max_completion_tokens` mapping
+- `litellm/integrations/shadow_eval_logger.py`: upstream's check matches the typed `web_search_20250305` tool every recorded Claude Code request uses
+- `litellm/litellm_core_utils/prompt_templates/factory.py` and its test: both `/v1/messages` entry points repair nameless tool_use blocks before any bridge dispatch, and OpenAI-format clients never produce them
+- `AnthropicWebSearchResult`, `AnthropicWebSearchResultBlock` and the builder body: the Responses bridge builds the block with upstream's `WebSearchTransformation` from upstream's `SearchResult`
+- the tools-first reorder in the adapter, the `dict.fromkeys` wrappers in `proxy/utils.py`, the fork's rewrite of upstream's two tool_reference tests, three `test_model_checks.py` tests and the headroom stream_options test: upstream already covers each one
+
+Reshaped rather than dropped: the budget exemption now reads the router only through `registry()` and `settings()` and lives inside upstream's `request_skips_budget_checks` (upstream's router surface and recursion CI checks pass again, and the router-time fallback check works with the `RoutingContext` it really gets), the chat bridge keeps `bash`, `text_editor` and `memory` for Claude targets, and the context-caching fallback applies only to a 400
 
 ### v1.110.1 and v1.110.2
 

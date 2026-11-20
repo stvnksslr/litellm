@@ -30,7 +30,6 @@ from litellm.litellm_core_utils.reasoning_effort_utils import (
     reasoning_effort_from_thinking,
 )
 from litellm.llms.anthropic.common_utils import (
-    AnthropicWebSearchResult,
     build_anthropic_web_search_tool_result_block,
     web_search_result_from_source,
 )
@@ -44,6 +43,7 @@ from litellm.llms.anthropic.messages.utils import (
     json_copy_or_original,
     prompt_cache_key_from_user_id,
 )
+from litellm.llms.base_llm.search.transformation import SearchResult
 from litellm.types.llms.anthropic import (
     ANTHROPIC_HOSTED_TOOLS,
     AllAnthropicPassThroughMessageValues,
@@ -118,7 +118,7 @@ def web_search_call_query(item: Mapping[str, object]) -> str | None:
     return str(query)
 
 
-def _url_citations(annotations: object) -> tuple[AnthropicWebSearchResult, ...]:
+def _url_citations(annotations: object) -> tuple[SearchResult, ...]:
     if not isinstance(annotations, (list, tuple)):
         return ()
     mapped = (web_search_result_from_source(as_responses_item_mapping(annotation)) for annotation in annotations)
@@ -831,7 +831,7 @@ class LiteLLMAnthropicToResponsesAPIAdapter:
 
     @staticmethod
     def _attach_citations_to_last_search_result(
-        content: list[dict[str, object]], citations: tuple[AnthropicWebSearchResult, ...]
+        content: list[dict[str, object]], citations: tuple[SearchResult, ...]
     ) -> None:
         last_result_index: Final = next(
             (i for i in reversed(range(len(content))) if content[i].get("type") == "web_search_tool_result"), None
@@ -862,7 +862,7 @@ class LiteLLMAnthropicToResponsesAPIAdapter:
         refusal_text: Final = responses_output_refusal_text(
             cast(Iterable[object], response.output)  # cast-ok: output items re-validated per item
         )
-        citations: Final[list[AnthropicWebSearchResult]] = []
+        citations: Final[list[SearchResult]] = []
 
         for item in response.output:
             item_type = item.get("type") if isinstance(item, dict) else getattr(item, "type", None)

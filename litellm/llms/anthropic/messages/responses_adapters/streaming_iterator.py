@@ -18,7 +18,6 @@ from litellm.litellm_core_utils.prompt_templates.reasoning_utils import (
     encrypted_reasoning_signature,
 )
 from litellm.llms.anthropic.common_utils import (
-    AnthropicWebSearchResult,
     build_anthropic_web_search_tool_result_block,
     web_search_result_from_source,
 )
@@ -29,6 +28,7 @@ from litellm.llms.anthropic.messages.native.utils import (
 )
 from litellm.llms.anthropic.messages.safeguards import StreamedSafeguardResults
 from litellm.llms.anthropic.messages.utils import anthropic_sse_frame
+from litellm.llms.base_llm.search.transformation import SearchResult
 from litellm.responses.streaming_iterator import (
     map_stream_error_to_exception,
     partial_responses_incomplete_event_on_disconnect,
@@ -165,7 +165,7 @@ class AnthropicResponsesStreamWrapper:
         # The Responses API reports search sources as annotations on the answer text, so the
         # web_search_tool_result paired with the last search can only be emitted at the end.
         self._web_search_block_id: str | None = None
-        self._web_search_results: tuple[AnthropicWebSearchResult, ...] = ()
+        self._web_search_results: tuple[SearchResult, ...] = ()
         self._sent_message_start = False
         self._sent_message_stop = False
         self._stream_failed = False

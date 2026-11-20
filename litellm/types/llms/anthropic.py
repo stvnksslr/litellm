@@ -705,19 +705,6 @@ class AnthropicResponseContentBlockToolUse(LiteLLMBaseModel):
     model_config = ConfigDict(extra="allow")  # Allow provider_specific_fields
 
 
-class AnthropicWebSearchResultBlock(LiteLLMBaseModel):
-    type: Literal["web_search_result"] = "web_search_result"
-    url: str
-    title: str
-    page_age: str | None = None
-    # Anthropic returns an opaque blob here for replay; nothing we synthesize
-    # can produce one, and clients treat the empty string as "not replayable".
-    encrypted_content: str = ""
-    # Additive to the spec: page text has nowhere to live once encrypted_content
-    # is empty, and dropping it leaves the client with no evidence to answer from.
-    snippet: str = ""
-
-
 class AnthropicResponseContentBlockThinking(LiteLLMBaseModel):
     type: Literal["thinking"]
     thinking: str

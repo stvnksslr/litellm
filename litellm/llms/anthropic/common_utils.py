@@ -52,6 +52,7 @@ from litellm.llms.anthropic.wif import (
 )
 from litellm.llms.base_llm.base_utils import BaseLLMModelInfo, BaseTokenCounter
 from litellm.llms.base_llm.chat.transformation import BaseLLMException
+from litellm.llms.base_llm.search.transformation import SearchResponse, SearchResult
 from litellm.types.llms.anthropic import (
     ANTHROPIC_BETA_HEADER_VALUES,
     ANTHROPIC_HOSTED_TOOLS,
@@ -67,9 +68,7 @@ from litellm.types.llms.anthropic import (
     AllAnthropicToolsValues,
     AnthropicMcpServerTool,
     AnthropicMessagesToolChoice,
-    AnthropicResponseContentBlockWebSearchToolResult,
     AnthropicThinkingParam,
-    AnthropicWebSearchResultBlock,
 )
 from litellm.types.llms.base import LiteLLMBaseModel
 from litellm.types.llms.openai import (
@@ -137,62 +136,29 @@ def anthropic_error_frame_exception(error_type: str, message: str, status_code: 
     return frame_error
 
 
-@dataclass(frozen=True, slots=True)
-class AnthropicWebSearchResult:
-    """One entry of an Anthropic ``web_search_tool_result`` content block."""
-
-    url: str
-    title: str
-    page_age: str | None = None
-    snippet: str = ""
-
-
 _WEB_SEARCH_SOURCE_TYPES: Final = frozenset({"url_citation", "url"})
 
 
-def web_search_result_from_source(source: Mapping[str, object]) -> "AnthropicWebSearchResult | None":
-    """Map one Responses API url citation / search source to a search result.
+def web_search_result_from_source(source: Mapping[str, object]) -> SearchResult | None:
+    """Map one Responses API ``url_citation`` annotation or search-call ``url`` source to a search result.
 
-    The Responses API surfaces the sources a hosted web search used either as
-    ``url_citation`` annotations on the answer text or as ``url`` entries on the
-    search call itself, depending on model and api-version. Both carry the same
-    fields, so both are accepted; anything else (file citations, container
-    citations) is not a web source and is skipped.
+    Which of the two a hosted search surfaces depends on model and api-version, and both carry the same fields.
+    Anything else (file or container citations) is not a web source.
     """
-    url = source.get("url")
+    url: Final = source.get("url")
     if source.get("type") not in _WEB_SEARCH_SOURCE_TYPES or not url:
         return None
-    return AnthropicWebSearchResult(url=str(url), title=str(source.get("title") or ""))
+    return SearchResult(url=str(url), title=str(source.get("title") or ""), snippet="")
 
 
 def build_anthropic_web_search_tool_result_block(
-    tool_use_id: str,
-    results: Iterable[AnthropicWebSearchResult],
+    tool_use_id: str, results: Iterable[SearchResult]
 ) -> Mapping[str, object]:
-    """Build an Anthropic-native ``web_search_tool_result`` content block.
+    from litellm.integrations.websearch_interception.transformation import WebSearchTransformation
 
-    Native Anthropic clients (Claude Code, Claude Desktop, the Anthropic SDK)
-    pair this block with the ``server_tool_use`` block carrying the same
-    ``tool_use_id`` in order to render sources. Shared by every surface that has
-    to synthesize server-side web search results - the interception callback
-    running the search itself, and the Responses API bridge translating a
-    provider-run search back into Anthropic shape.
-
-    Spec: https://docs.anthropic.com/en/api/web-search-tool
-    """
-    return AnthropicResponseContentBlockWebSearchToolResult(
-        type="web_search_tool_result",
-        tool_use_id=tool_use_id,
-        content=[
-            AnthropicWebSearchResultBlock(
-                url=result.url,
-                title=result.title,
-                page_age=result.page_age,
-                snippet=result.snippet,
-            ).model_dump()
-            for result in results
-        ],
-    ).model_dump()
+    return WebSearchTransformation.build_web_search_tool_result_block(
+        tool_use_id=tool_use_id, search_response=SearchResponse(results=[*results])
+    )
 
 
 _BEDROCK_VERSION_SUFFIX_RE: Final = re.compile(r"-v\d+(?::\d+)?$")

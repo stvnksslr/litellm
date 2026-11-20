@@ -3451,11 +3451,7 @@ def anthropic_messages_pt(
                 if isinstance(content, dict) and content["type"] == "text":
                     content["text"] = content["text"].rstrip()  # no trailing whitespace for final assistant message
 
-    from litellm.llms.anthropic.common_utils import (
-        repair_nameless_tool_use_blocks_in_anthropic_messages,
-    )
-
-    return repair_nameless_tool_use_blocks_in_anthropic_messages(new_messages)
+    return new_messages
 
 
 def extract_between_tags(tag: str, string: str, strip: bool = False) -> list[str]:

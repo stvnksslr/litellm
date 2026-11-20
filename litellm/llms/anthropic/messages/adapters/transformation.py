@@ -1449,12 +1449,6 @@ class LiteLLMAnthropicMessagesAdapter:
             "model": anthropic_message_request["model"],
             "messages": [],
         }
-        ## CONVERT TOOLS (first: tool_reference blocks in messages expand from the translated catalog)
-        tool_name_mapping: Final = self._translate_tools_to_openai(
-            anthropic_message_request=anthropic_message_request,
-            new_kwargs=new_kwargs,
-            referenced=referenced_tool_names(cast(Sequence[Mapping[str, object]], messages_list)),
-        )
         ## CONVERT METADATA (user_id + litellm metadata)
         self._translate_metadata_to_openai(
             anthropic_message_request=anthropic_message_request,
@@ -1466,6 +1460,12 @@ class LiteLLMAnthropicMessagesAdapter:
         self._translate_tool_choice_to_openai(
             anthropic_message_request=anthropic_message_request,
             new_kwargs=new_kwargs,
+        )
+        ## CONVERT TOOLS
+        tool_name_mapping: Final = self._translate_tools_to_openai(
+            anthropic_message_request=anthropic_message_request,
+            new_kwargs=new_kwargs,
+            referenced=referenced_tool_names(cast(Sequence[Mapping[str, object]], messages_list)),
         )
         ## CONVERT THINKING
         self._translate_thinking_to_openai(

@@ -5089,6 +5089,39 @@ def _expansion(*names):
     return f"<functions>\n{lines}\n</functions>"
 
 
+def test_tool_result_tool_reference_is_carried_through_untouched():
+    adapter = LiteLLMAnthropicMessagesAdapter()
+
+    result = adapter.translate_anthropic_messages_to_openai(
+        messages=[
+            _anthropic_tool_use_turn("toolu_01"),
+            _anthropic_tool_result_turn({"toolu_01": [_tool_reference_block()]}),
+        ]
+    )
+
+    assert [m["role"] for m in result] == ["assistant", "tool"]
+    assert result[1]["tool_call_id"] == "toolu_01"
+    assert result[1]["content"] == [{"type": "tool_reference", "tool_name": "WebFetch"}]
+
+
+def test_tool_result_text_beside_tool_reference_keeps_both_parts_in_order():
+    adapter = LiteLLMAnthropicMessagesAdapter()
+
+    result = adapter.translate_anthropic_messages_to_openai(
+        messages=[
+            _anthropic_tool_use_turn("toolu_01"),
+            _anthropic_tool_result_turn(
+                {"toolu_01": [{"type": "text", "text": "loaded"}, _tool_reference_block("Grep")]}
+            ),
+        ]
+    )
+
+    assert result[1]["content"] == [
+        {"type": "text", "text": "loaded"},
+        {"type": "tool_reference", "tool_name": "Grep"},
+    ]
+
+
 def test_tool_result_tool_reference_expands_into_the_functions_block_the_tool_promises():
     adapter = LiteLLMAnthropicMessagesAdapter()
 

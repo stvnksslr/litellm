@@ -10112,7 +10112,7 @@ async def _get_access_group_models(
         team_object=team_object,
         resource_field="access_model_names",
     )
-    return _AccessGroupModels(team=tuple(dict.fromkeys(team_group_models)), key=tuple(dict.fromkeys(key_group_models)))
+    return _AccessGroupModels(team=tuple(team_group_models), key=tuple(key_group_models))
 
 
 async def _agent_access_group_visible_models(
@@ -10272,20 +10272,16 @@ async def get_available_models_for_user(
         bool(user_api_key_dict.config) or SpecialModelNames.all_team_models.value in key_model_names
     )
     granted_key_models: Final = (
-        tuple(
-            dict.fromkeys(
-                (
-                    *key_models,
-                    *access_group_models.key,
-                    *(access_group_models.team if key_model_check_skipped else ()),
-                )
-            )
+        (
+            *key_models,
+            *access_group_models.key,
+            *(access_group_models.team if key_model_check_skipped else ()),
         )
         if key_models
         else key_models
     )
     granted_team_models: Final = (
-        tuple(dict.fromkeys((*team_models, *access_group_models.team, *access_group_models.key)))
+        (*team_models, *access_group_models.team, *access_group_models.key)
         if team_is_restricted
         else team_models
     )

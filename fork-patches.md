@@ -1,6 +1,6 @@
 # Fork patch manifest (delta vs upstream v1.110.2, `v1.110.2..HEAD`)
 
-Line numbers are as of the current `main-fork` tip. For modified files they are diff-hunk ranges (`git diff v1.110.2..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 115 files, +7,399 / -147, roughly 60% tests
+Line numbers are as of the current `main-fork` tip. For modified files they are diff-hunk ranges (`git diff v1.110.2..HEAD --unified=0`); for added files `L1-L<n>` is the full file. 115 files, +7,403 / -147, roughly 60% tests
 
 ## Agentic coding clients on the proxy (/v1/messages bridge)
 
@@ -54,7 +54,7 @@ Line numbers are as of the current `main-fork` tip. For modified files they are 
 - `litellm/llms/vertex_ai/vertex_ai_partner_models/main.py` L12-L15, L224: merge system messages on partner-models dispatch
 - `litellm/llms/vertex_ai/vertex_model_garden/main.py` L20, L24-L26, L28, L128-L130: merge system messages on model garden route
 - `litellm/llms/vertex_ai/vertex_model_garden/transformation.py` L1-L13: new `VertexAIModelGardenOpenAIConfig`, declares `reasoning_effort` on top of `VertexAILlama3Config`. Upstream reaches the same result when every Model Garden deployment sets `allowed_openai_params: [reasoning_effort]`, so this can go once the deployments carry that
-- `litellm/utils.py` L10103-L10108: `ProviderConfigManager` returns model-garden config for `openai/` Vertex prefix, which `get_supported_openai_params` picks up before its own provider branches
+- `litellm/utils.py` L10109-L10114: `ProviderConfigManager` returns model-garden config for `openai/` Vertex prefix, which `get_supported_openai_params` picks up before its own provider branches
 - `litellm/utils.py` L5351-L5363: drop `stream_options` in `pre_process_non_default_params` unless `stream is True`; keeps only what upstream's `normalize_responses_api_stream_options` forwards so the Responses bridge contract holds
 - `litellm/llms/anthropic/messages/adapters/model_garden_reasoning.py` L1-L91: new, Qwen/GLM family detection; Qwen gets `chat_template_kwargs.enable_thinking: false` and effort mapped to low/medium/xhigh; GLM defaults to `low`, requested tier collapsed to low/high. Both replace a summary-wrapped effort with a plain tier. The family match takes any `vertex_ai` or `hosted_vllm` model whose name contains `qwen` or `glm`, MaaS Qwen included
 - `litellm/llms/anthropic/messages/adapters/claude_code_classifier.py` L1-L43: new, detect classifier request by `</block>` stop sequence; floor GLM `max_tokens` at 4096
@@ -64,7 +64,7 @@ Line numbers are as of the current `main-fork` tip. For modified files they are 
 Typed-decision models on Vertex AI dedicated endpoints serve through upstream's decisions API (`POST /v1/systemone`), which validates the request, enforces key and team model access, and prices the answer. The route is keyed on the LiteLLM model group (the `VertexAIModelSet` name), so the serving model can change without gateway changes. A deployment looks like `model: vertex_ai/openai/decider` with `api_base` set to the endpoint's `.../invoke/v1` URL; set `model_info.mode: decisions` so health checks send a decisions request
 
 - `litellm/llms/vertex_ai/decisions/transformation.py` L1-L37: new `VertexAIDecisionsConfig`, upstream's TypeSafe wire format (which the decider container speaks) with no default `api_base` or env fallback, and a Google OAuth token from the deployment's `vertex_credentials`/`vertex_project` as the bearer unless an `api_key` is set. The token source is injectable
-- `litellm/utils.py` L10396-L10399: `ProviderConfigManager.get_provider_decisions_config` returns it for `LlmProviders.VERTEX_AI`
+- `litellm/utils.py` L9869-L9874, L10431, L10440: `ProviderConfigManager.get_provider_decisions_config` returns it for `LlmProviders.VERTEX_AI` through upstream's provider table, via a lazy-import factory
 - `tests/unit/decisions/test_main.py` L1589: `vertex_ai` joins the providers exempt from shipping an `evaluation`-mode cost map row, like `hosted_vllm`, since decider endpoints are self-hosted and have no catalog entry
 
 ## Model discovery and access groups
@@ -141,7 +141,7 @@ Upstream main no longer requires the legacy `max_tokens` field (#48471), so the 
 
 ## Vertex AI context caching
 
-- `litellm/llms/vertex_ai/context_caching/vertex_ai_context_caching.py` L82-L100, L559-L570, L721-L725, L743-L745: when the `cachedContents` creation call fails with a 400, which Google answers for a model without explicit caching support (`gemini-4-argon`: "does not support explicit context caching") or content below the cache minimum, `_warn_cache_creation_rejected` logs a warning and the request goes out uncached with the original messages and `tools`/`tool_choice`. Every other status (401, 403, 429, 5xx) raises `VertexAIError` as upstream does. The sync path restores the tools it already popped. The async path raises `_CachedContentsCreationRejectedError` out of upstream's single-flight `lookup_or_create` and degrades beside upstream's 404 skip, before the tools are popped. Claude Code always sends `cache_control`, so raising on the 400 failed every request for those models. Upstream still raises as of v1.110.2
+- `litellm/llms/vertex_ai/context_caching/vertex_ai_context_caching.py` L82-L109, L568-L577, L728: when the `cachedContents` creation call fails with a 400, which Google answers for a model without explicit caching support (`gemini-4-argon`: "does not support explicit context caching") or content below the cache minimum, `_warn_cache_creation_rejected` logs a warning and the request goes out uncached with the original messages and `tools`/`tool_choice`. Every other status (401, 403, 429, 5xx) raises `VertexAIError` as upstream does. The sync path restores the tools it already popped. The async path raises `_CachedContentsCreationRejectedError` out of upstream's single-flight `lookup_or_create`; it subclasses upstream's `_CachedContentsNotServedError`, so upstream's own 404 skip degrades it before the tools are popped. Claude Code always sends `cache_control`, so raising on the 400 failed every request for those models. Upstream still raises as of v1.110.2
 - `tests/unit/llms/vertex_ai/context_caching/test_vertex_ai_context_caching.py` L463, L473, L476-L482, L489-L490, L505-L541, L543, L791-L870: the sync and async 400 tests assert the degrade contract (full prompt returned, tools restored, no cache name), and 401, 403, 429 and 503 still raise on the sync path; timeout tests keep raising 408
 - `tests/unit/llms/vertex_ai/context_caching/test_known_cached_contents.py` L349-L361: an async 400 for the model degrades to an uncached request, next to upstream's restored `test_async_create_http_error_surfaces_its_status_code`
 

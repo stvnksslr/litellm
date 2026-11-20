@@ -509,6 +509,39 @@ class TestContextCachingEndpoints:
         assert returned_params["tools"] == self.sample_tools
         assert returned_cache is None
 
+    @pytest.mark.parametrize("status_code", [401, 403, 429, 503])
+    @patch("litellm.llms.vertex_ai.context_caching.vertex_ai_context_caching.separate_cached_messages")
+    @patch("litellm.llms.vertex_ai.context_caching.vertex_ai_context_caching.local_cache_obj")
+    @patch.object(ContextCachingEndpoints, "check_cache")
+    @patch.object(ContextCachingEndpoints, "_get_token_and_url_context_caching")
+    def test_check_and_create_cache_surfaces_errors_other_than_a_rejected_model(
+        self, mock_get_token_url, mock_check_cache, mock_cache_obj, mock_separate, status_code
+    ):
+        mock_separate.return_value = ([self.sample_messages[0]], [self.sample_messages[1]])
+        mock_cache_obj.get_cache_key.return_value = "test_cache_key"
+        mock_check_cache.return_value = None
+        mock_get_token_url.return_value = ("token", "https://test-url.com")
+        failed = MagicMock(status_code=status_code, text="denied")
+        self.mock_client.post.side_effect = httpx.HTTPStatusError("Error", request=MagicMock(), response=failed)
+
+        with pytest.raises(VertexAIError) as raised:
+            self.context_caching.check_and_create_cache(
+                messages=self.sample_messages,
+                optional_params=self.sample_optional_params.copy(),
+                api_key="test_key",
+                api_base=None,
+                model="gemini-1.5-pro",
+                client=self.mock_client,
+                timeout=30.0,
+                logging_obj=self.mock_logging,
+                custom_llm_provider="vertex_ai",
+                vertex_project="test_project",
+                vertex_location="us-central1",
+                vertex_auth_header="vertext_test_token",
+            )
+
+        assert raised.value.status_code == status_code
+
     @pytest.mark.asyncio
     @pytest.mark.parametrize("custom_llm_provider", ["gemini", "vertex_ai", "vertex_ai_beta"])
     @patch("litellm.llms.vertex_ai.context_caching.vertex_ai_context_caching.separate_cached_messages")

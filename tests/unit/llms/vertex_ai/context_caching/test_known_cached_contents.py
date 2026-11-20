@@ -333,12 +333,28 @@ async def test_async_listed_cache_past_its_expire_time_is_not_used(endpoints: Co
 
 
 @pytest.mark.asyncio
-async def test_async_create_http_error_degrades_to_an_uncached_request(endpoints: ContextCachingEndpoints):
+async def test_async_create_http_error_surfaces_its_status_code(endpoints: ContextCachingEndpoints):
     client: Final = MagicMock(spec=AsyncHTTPHandler)
     client.get = AsyncMock(return_value=_response({}))
     request: Final = httpx.Request("POST", "https://vertex.test/v1/projects/p/locations/us/cachedContents")
     failed: Final = httpx.Response(429, request=request, text="RESOURCE_EXHAUSTED")
     client.post = AsyncMock(return_value=failed)
+
+    with pytest.raises(VertexAIError) as raised:
+        await _async_call(endpoints, client)
+
+    assert raised.value.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_async_create_rejected_for_the_model_degrades_to_an_uncached_request(endpoints: ContextCachingEndpoints):
+    client: Final = MagicMock(spec=AsyncHTTPHandler)
+    client.get = AsyncMock(return_value=_response({}))
+    request: Final = httpx.Request("POST", "https://vertex.test/v1/projects/p/locations/us/cachedContents")
+    rejected: Final = httpx.Response(
+        400, request=request, text="Model `gemini-4-argon` does not support explicit context caching."
+    )
+    client.post = AsyncMock(return_value=rejected)
 
     assert await _async_call(endpoints, client) == (_messages(), {}, None)
 

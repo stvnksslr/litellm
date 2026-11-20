@@ -83,9 +83,13 @@ class _CachedContentsCreationRejectedError(VertexAIError):
     pass
 
 
+def _cache_creation_rejects_the_request(status_code: int) -> bool:
+    # Google answers 400 when a model does not support explicit context caching or the content is below the cache
+    # minimum. That request still works uncached, while auth, quota and server errors must surface.
+    return status_code == 400
+
+
 def _warn_cache_creation_rejected(status_code: int, response_text: str) -> None:
-    # Google rejects explicit caching per model ("Model X does not support explicit context caching"),
-    # so the request degrades to uncached and generateContent stays the judge of request validity.
     verbose_logger.warning(
         "Vertex AI context caching: cachedContents creation failed with status %d: %s. "
         "Proceeding without explicit context caching.",
@@ -552,6 +556,8 @@ class ContextCachingEndpoints(VertexBase):
             )
             response.raise_for_status()
         except httpx.HTTPStatusError as err:
+            if not _cache_creation_rejects_the_request(err.response.status_code):
+                raise VertexAIError(status_code=err.response.status_code, message=err.response.text)
             _warn_cache_creation_rejected(err.response.status_code, err.response.text)
             if tools is not None:
                 optional_params["tools"] = tools
@@ -712,6 +718,8 @@ class ContextCachingEndpoints(VertexBase):
                 )
                 response.raise_for_status()
             except httpx.HTTPStatusError as err:
+                if not _cache_creation_rejects_the_request(err.response.status_code):
+                    raise VertexAIError(status_code=err.response.status_code, message=err.response.text)
                 raise _CachedContentsCreationRejectedError(
                     status_code=err.response.status_code, message=err.response.text
                 )

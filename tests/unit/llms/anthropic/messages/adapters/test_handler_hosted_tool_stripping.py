@@ -37,7 +37,7 @@ BASH_TOOL = {
 }
 
 
-def _call_prepare(tools, model="hosted_vllm/glm-5_2-fp8", tool_choice=None):
+def _call_prepare(tools, model="hosted_vllm/glm-5_2-fp8", tool_choice=None, extra_kwargs=None):
     completion_kwargs, _ = LiteLLMMessagesToCompletionTransformationHandler._prepare_completion_kwargs(
         max_tokens=1024,
         messages=MESSAGES,
@@ -53,7 +53,7 @@ def _call_prepare(tools, model="hosted_vllm/glm-5_2-fp8", tool_choice=None):
         top_k=None,
         top_p=None,
         output_format=None,
-        extra_kwargs={},
+        extra_kwargs=extra_kwargs or {},
     )
     return completion_kwargs
 
@@ -75,6 +75,36 @@ def test_hosted_tools_are_not_forwarded_to_chat_completions(hosted_tool):
     forwarded = completion_kwargs["tools"]
     assert [tool["type"] for tool in forwarded] == ["function"]
     assert forwarded[0]["function"]["name"] == "Bash"
+
+
+CLIENT_EXECUTED_TOOLS = [
+    {"type": "bash_20250124", "name": "bash"},
+    {"type": "text_editor_20250728", "name": "str_replace_based_edit_tool"},
+    {"type": "memory_20250818", "name": "memory"},
+]
+
+
+@pytest.mark.parametrize(
+    "model, custom_llm_provider",
+    [
+        ("us.anthropic.claude-sonnet-4-5-20250929-v1:0", "bedrock"),
+        ("claude-sonnet-4-5", "anthropic"),
+        ("claude-sonnet-4-5@20250929", "vertex_ai"),
+    ],
+)
+def test_client_executed_anthropic_tools_reach_claude_targets_while_server_tools_do_not(model, custom_llm_provider):
+    completion_kwargs = _call_prepare(
+        [*CLIENT_EXECUTED_TOOLS, {"type": "code_execution_20250522", "name": "code_execution"}, BASH_TOOL],
+        model=model,
+        extra_kwargs={"custom_llm_provider": custom_llm_provider},
+    )
+
+    assert [tool["type"] for tool in completion_kwargs["tools"]] == [
+        "bash_20250124",
+        "text_editor_20250728",
+        "memory_20250818",
+        "function",
+    ]
 
 
 def test_user_function_tools_survive_untouched():

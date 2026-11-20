@@ -848,15 +848,29 @@ class ANTHROPIC_HOSTED_TOOLS(str, Enum):
     TOOL_SEARCH_TOOL = "tool_search_tool"
 
 
-def is_anthropic_hosted_tool_type(tool_type: str | None) -> bool:
-    """Return True when ``tool_type`` names an Anthropic server-side tool.
+_ANTHROPIC_CLIENT_EXECUTED_TOOLS: Final = frozenset(
+    (ANTHROPIC_HOSTED_TOOLS.BASH, ANTHROPIC_HOSTED_TOOLS.TEXT_EDITOR, ANTHROPIC_HOSTED_TOOLS.MEMORY)
+)
 
-    Hosted tool types carry a date suffix (e.g. ``web_search_20250305``,
-    ``tool_search_tool_regex_20251119``), so match on the family prefix.
-    """
+
+def _anthropic_tool_family(tool_type: str | None) -> ANTHROPIC_HOSTED_TOOLS | None:
     if not tool_type:
-        return False
-    return any(tool_type.startswith(hosted.value) for hosted in ANTHROPIC_HOSTED_TOOLS)
+        return None
+    return next((family for family in ANTHROPIC_HOSTED_TOOLS if tool_type.startswith(family.value)), None)
+
+
+def is_anthropic_hosted_tool_type(tool_type: str | None) -> bool:
+    """Return True when ``tool_type`` names an Anthropic server-side tool, which Anthropic runs itself.
+
+    Tool types carry a date suffix (e.g. ``web_search_20250305``, ``tool_search_tool_regex_20251119``), so match on
+    the family prefix. ``bash``, ``text_editor`` and ``memory`` are Anthropic-defined but run by the client.
+    """
+    family: Final = _anthropic_tool_family(tool_type)
+    return family is not None and family not in _ANTHROPIC_CLIENT_EXECUTED_TOOLS
+
+
+def is_anthropic_client_executed_tool_type(tool_type: str | None) -> bool:
+    return _anthropic_tool_family(tool_type) in _ANTHROPIC_CLIENT_EXECUTED_TOOLS
 
 
 def is_anthropic_web_search_tool(tool: Mapping[str, object]) -> bool:

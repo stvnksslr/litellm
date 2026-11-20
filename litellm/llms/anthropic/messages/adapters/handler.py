@@ -29,7 +29,10 @@ from litellm.litellm_core_utils.tool_fields import (
     drops_mcp_servers,
     tools_without_mcp_servers,
 )
-from litellm.llms.anthropic.common_utils import strip_encrypted_reasoning_blocks_from_anthropic_messages
+from litellm.llms.anthropic.common_utils import (
+    is_claude_tool_target,
+    strip_encrypted_reasoning_blocks_from_anthropic_messages,
+)
 from litellm.llms.anthropic.messages.adapters.claude_code_classifier import (
     glm_classifier_request_overrides,
 )
@@ -62,7 +65,7 @@ from litellm.llms.anthropic.messages.utils import (
     proxy_sub_call_trace_id,
 )
 from litellm.types.integrations.custom_logger import CONVERTED_STREAM_KEYS
-from litellm.types.llms.anthropic import is_anthropic_hosted_tool_type
+from litellm.types.llms.anthropic import is_anthropic_client_executed_tool_type, is_anthropic_hosted_tool_type
 from litellm.types.llms.anthropic_messages.anthropic_response import (
     AnthropicMessagesResponse,
 )
@@ -554,6 +557,14 @@ def _record_bridged_model_response(logging_obj: LiteLLMLoggingObject | None, com
         logging_obj.record_bridged_model_response(completion_response)
 
 
+def _drops_anthropic_tool(tool_type: object, *, claude_target: bool) -> bool:
+    if not isinstance(tool_type, str):
+        return False
+    return is_anthropic_hosted_tool_type(tool_type) or (
+        not claude_target and is_anthropic_client_executed_tool_type(tool_type)
+    )
+
+
 class LiteLLMMessagesToCompletionTransformationHandler:
     @staticmethod
     def _route_openai_thinking_to_responses_api_if_needed(
@@ -822,8 +833,11 @@ class LiteLLMMessagesToCompletionTransformationHandler:
 
         completion_kwargs: Final[_CompletionKwargs] = {**openai_request}
 
+        claude_target: Final = is_claude_tool_target(target_provider, model)
         forwardable_tools = [
-            tool for tool in completion_kwargs.get("tools") or [] if not is_anthropic_hosted_tool_type(tool.get("type"))
+            tool
+            for tool in completion_kwargs.get("tools") or []
+            if not _drops_anthropic_tool(tool.get("type"), claude_target=claude_target)
         ]
         if forwardable_tools:
             completion_kwargs["tools"] = forwardable_tools

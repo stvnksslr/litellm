@@ -18,6 +18,7 @@ from litellm.proxy._types import LiteLLM_UserTable, UserAPIKeyAuth
 from litellm.proxy.auth.auth_checks import (
     _is_model_budget_exempt,
     common_checks,
+    request_skips_budget_checks,
     should_skip_budget_checks_for_model,
 )
 from litellm.proxy.auth.user_api_key_auth import _should_skip_budget_checks
@@ -91,12 +92,7 @@ class TestIsModelBudgetExempt:
         assert _is_model_budget_exempt(["exempt-model"], _router_with_marker()) is True
 
     def test_list_with_one_unmarked_not_exempt(self):
-        assert (
-            _is_model_budget_exempt(
-                ["exempt-model", "paid-model"], _router_with_marker()
-            )
-            is False
-        )
+        assert _is_model_budget_exempt(["exempt-model", "paid-model"], _router_with_marker()) is False
 
     def test_partial_group_not_exempt(self):
         """A model_name backed by two deployments where only one is marked must
@@ -132,9 +128,7 @@ class TestIsModelBudgetExempt:
         router.upsert_deployment(
             deployment=Deployment(
                 model_name="db-exempt-model",
-                litellm_params=LiteLLM_Params(
-                    model="openai/gpt-4o-mini", api_key="sk-fake"
-                ),
+                litellm_params=LiteLLM_Params(model="openai/gpt-4o-mini", api_key="sk-fake"),
                 model_info=ModelInfo(**{"id": "db1", "skip_budget_checks": True}),
             )
         )
@@ -143,16 +137,10 @@ class TestIsModelBudgetExempt:
 
 class TestShouldSkipBudgetChecksForModel:
     def test_marked_model_skips(self):
-        assert (
-            should_skip_budget_checks_for_model("exempt-model", _router_with_marker())
-            is True
-        )
+        assert should_skip_budget_checks_for_model("exempt-model", _router_with_marker()) is True
 
     def test_paid_model_does_not_skip(self):
-        assert (
-            should_skip_budget_checks_for_model("paid-model", _router_with_marker())
-            is False
-        )
+        assert should_skip_budget_checks_for_model("paid-model", _router_with_marker()) is False
 
     def test_explicit_zero_cost_still_skips(self):
         """The existing explicit-zero-cost bypass must keep working."""
@@ -219,9 +207,7 @@ class TestCommonChecksEndToEnd:
     @pytest.mark.asyncio
     async def test_over_budget_user_allowed_on_marked_model(self, proxy_logging):
         router = _router_with_marker()
-        user_object = LiteLLM_UserTable(
-            user_id="test-user", spend=100.0, max_budget=50.0
-        )
+        user_object = LiteLLM_UserTable(user_id="test-user", spend=100.0, max_budget=50.0)
         request_data = {"model": "exempt-model"}
         skip = _should_skip_budget_checks(
             request_data=request_data,
@@ -250,9 +236,7 @@ class TestCommonChecksEndToEnd:
     @pytest.mark.asyncio
     async def test_over_budget_user_blocked_on_unmapped_model(self, proxy_logging):
         router = _router_with_marker()
-        user_object = LiteLLM_UserTable(
-            user_id="test-user", spend=100.0, max_budget=50.0
-        )
+        user_object = LiteLLM_UserTable(user_id="test-user", spend=100.0, max_budget=50.0)
         request_data = {"model": "unmapped-model"}
         skip = _should_skip_budget_checks(
             request_data=request_data,
@@ -283,9 +267,7 @@ class TestCommonChecksEndToEnd:
         """Enforcement guard: an over-budget user is still 429'd on a route that
         consumes budget. Catches a mutation that over-broadens the skip."""
         router = _router_with_marker()
-        user_object = LiteLLM_UserTable(
-            user_id="test-user", spend=100.0, max_budget=50.0
-        )
+        user_object = LiteLLM_UserTable(user_id="test-user", spend=100.0, max_budget=50.0)
         with pytest.raises(litellm.BudgetExceededError):
             await common_checks(
                 request_body={"model": "paid-model"},
@@ -308,9 +290,7 @@ class TestCommonChecksEndToEnd:
         """The bug: budget exhaustion must not block read-only, non-spend routes.
         These return 429 before the is_llm_api_route gate is applied."""
         router = _router_with_marker()
-        user_object = LiteLLM_UserTable(
-            user_id="test-user", spend=100.0, max_budget=50.0
-        )
+        user_object = LiteLLM_UserTable(user_id="test-user", spend=100.0, max_budget=50.0)
         request = MagicMock()
         request.query_params = {}
         result = await common_checks(
@@ -391,45 +371,27 @@ class TestSkipResolvesAliases:
     they reach it through its alias."""
 
     def test_router_model_group_alias_of_exempt_model_skips(self):
-        assert (
-            should_skip_budget_checks_for_model("alias-of-exempt", _alias_router())
-            is True
-        )
+        assert should_skip_budget_checks_for_model("alias-of-exempt", _alias_router()) is True
 
     def test_router_model_group_alias_of_zero_cost_model_skips(self):
         """_is_cost_explicitly_configured used to match deployments by raw
         model_name, which never equals an alias — so the zero-cost half of the
         gate silently stopped working through model_group_alias."""
-        assert (
-            should_skip_budget_checks_for_model("alias-of-zero-cost", _alias_router())
-            is True
-        )
+        assert should_skip_budget_checks_for_model("alias-of-zero-cost", _alias_router()) is True
 
     def test_team_public_model_name_skips_for_that_team(self):
         """UI-created team models are addressed by team_public_model_name, which
         only resolves when team_id is supplied to the router."""
-        assert (
-            should_skip_budget_checks_for_model(
-                "team-exempt", _alias_router(), team_id="team-1"
-            )
-            is True
-        )
+        assert should_skip_budget_checks_for_model("team-exempt", _alias_router(), team_id="team-1") is True
 
     def test_team_public_model_name_does_not_skip_for_other_team(self):
-        assert (
-            should_skip_budget_checks_for_model(
-                "team-exempt", _alias_router(), team_id="team-2"
-            )
-            is False
-        )
+        assert should_skip_budget_checks_for_model("team-exempt", _alias_router(), team_id="team-2") is False
 
     def test_litellm_model_alias_map_skips(self, monkeypatch):
         """litellm.model_alias_map is applied after auth, so the gate has to
         resolve it itself."""
         monkeypatch.setitem(litellm.model_alias_map, "legacy-name", "exempt-model")
-        assert (
-            should_skip_budget_checks_for_model("legacy-name", _alias_router()) is True
-        )
+        assert should_skip_budget_checks_for_model("legacy-name", _alias_router()) is True
 
     def test_team_model_alias_skips(self):
         assert (
@@ -477,12 +439,7 @@ class TestSkipDeniedWhenFallbackIsNotExempt:
         ],
     )
     def test_paid_router_fallback_denies_skip(self, router_kwargs):
-        assert (
-            should_skip_budget_checks_for_model(
-                "exempt-model", _alias_router(**router_kwargs)
-            )
-            is False
-        )
+        assert should_skip_budget_checks_for_model("exempt-model", _alias_router(**router_kwargs)) is False
 
     def test_transitive_paid_fallback_denies_skip(self):
         router = _alias_router(
@@ -497,9 +454,7 @@ class TestSkipDeniedWhenFallbackIsNotExempt:
         """Router.async_function_with_fallbacks reads `fallbacks` straight off the
         request kwargs, so the caller picks the fallback target themselves."""
         assert (
-            should_skip_budget_checks_for_model(
-                "exempt-model", _alias_router(), request_fallbacks=["paid-model"]
-            )
+            should_skip_budget_checks_for_model("exempt-model", _alias_router(), request_fallbacks=["paid-model"])
             is False
         )
 
@@ -540,6 +495,28 @@ class TestSkipDeniedWhenFallbackIsNotExempt:
 class TestFallbackWiring:
     """The gate is only as good as what the callers hand it."""
 
+    def test_upstream_skip_predicate_refuses_a_zero_cost_model_with_a_paid_fallback(self):
+        """common_checks and the guardrail tag-budget path ask request_skips_budget_checks, not the fork's gate."""
+        router = _alias_router(fallbacks=[{"zero-cost-model": ["paid-model"]}])
+        assert (
+            request_skips_budget_checks(
+                route="/v1/chat/completions",
+                model="zero-cost-model",
+                llm_router=router,
+                request_body={"model": "zero-cost-model"},
+            )
+            is False
+        )
+        assert (
+            request_skips_budget_checks(
+                route="/v1/chat/completions",
+                model="zero-cost-model",
+                llm_router=_alias_router(),
+                request_body={"model": "zero-cost-model"},
+            )
+            is True
+        )
+
     def test_auth_layer_passes_request_fallbacks(self):
         assert (
             _should_skip_budget_checks(
@@ -547,7 +524,6 @@ class TestFallbackWiring:
                 route="/v1/chat/completions",
                 request=MagicMock(),
                 llm_router=_alias_router(),
-                valid_token=UserAPIKeyAuth(token="t", user_id="u"),
             )
             is False
         )
@@ -559,7 +535,7 @@ class TestFallbackWiring:
                 route="/v1/chat/completions",
                 request=MagicMock(),
                 llm_router=_alias_router(),
-                valid_token=UserAPIKeyAuth(token="t", user_id="u", team_id="team-1"),
+                team_id="team-1",
             )
             is True
         )

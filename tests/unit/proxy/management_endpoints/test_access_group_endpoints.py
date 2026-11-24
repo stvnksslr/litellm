@@ -27,6 +27,7 @@ def _make_access_group_record(
     access_group_name: str = "test-group",
     description: str | None = "Test description",
     access_model_names: list | None = None,
+    listed_model_names: list | None = None,
     access_mcp_server_ids: list | None = None,
     access_agent_ids: list | None = None,
     access_skill_names: list | None = None,
@@ -43,6 +44,7 @@ def _make_access_group_record(
         "access_group_name": access_group_name,
         "description": description,
         "access_model_names": access_model_names or [],
+        "listed_model_names": listed_model_names or [],
         "access_mcp_server_ids": access_mcp_server_ids or [],
         "access_agent_ids": access_agent_ids or [],
         "access_skill_names": access_skill_names or [],
@@ -89,6 +91,7 @@ def client_and_mocks(monkeypatch):
             access_group_name=data.get("access_group_name", "new"),
             description=data.get("description"),
             access_model_names=data.get("access_model_names", []),
+            listed_model_names=data.get("listed_model_names", []),
             access_mcp_server_ids=data.get("access_mcp_server_ids", []),
             access_agent_ids=data.get("access_agent_ids", []),
             access_skill_names=data.get("access_skill_names", []),
@@ -107,6 +110,7 @@ def client_and_mocks(monkeypatch):
             access_group_name=data.get("access_group_name", "updated"),
             description=data.get("description"),
             access_model_names=data.get("access_model_names", []),
+            listed_model_names=data.get("listed_model_names", []),
             access_mcp_server_ids=data.get("access_mcp_server_ids", []),
             access_agent_ids=data.get("access_agent_ids", []),
             access_skill_names=data.get("access_skill_names", []),
@@ -218,7 +222,23 @@ def test_create_access_group_success(client_and_mocks, base_path, payload):
     body = resp.json()
     assert body["access_group_name"] == payload["access_group_name"]
     assert body.get("access_group_id") is not None
+    assert body.get("listed_model_names") == []
     mock_table.create.assert_awaited_once()
+
+
+def test_create_access_group_with_listed_model_names(client_and_mocks):
+    """Create with listed_model_names returns them in the response."""
+    client, _, mock_table, *_ = client_and_mocks
+
+    payload = {
+        "access_group_name": "group-listed",
+        "access_model_names": ["gpt-4o", "claude-3"],
+        "listed_model_names": ["gpt-4o"],
+    }
+    resp = client.post("/v1/access_group", json=payload)
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["listed_model_names"] == ["gpt-4o"]
 
 
 def test_create_access_group_duplicate_name_conflict(client_and_mocks):

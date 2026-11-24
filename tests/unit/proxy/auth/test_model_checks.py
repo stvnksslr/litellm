@@ -2484,3 +2484,27 @@ def test_prefixed_alias_over_a_bare_catch_all_lists_ids_that_route_through_it(mo
     ]
     assert f"team-partial-route/{_ROUTE_OPENAI_ID}" in v1_models
     assert unrouted_ids == []
+
+
+def test_get_complete_model_list_no_default_models_with_access_group_models():
+    """no-default-models sentinel must not surface in the listing when the
+    team has access-group models. Regression for the staging report where
+    /v1/models returned [no-default-models] instead of the 39 access-group
+    models the key could actually call."""
+    from litellm.proxy.auth.model_checks import get_complete_model_list
+    from litellm.proxy._types import SpecialModelNames
+
+    ndm = SpecialModelNames.no_default_models.value
+    result = get_complete_model_list(
+        key_models=[ndm],  # leaked sentinel blocks team_models
+        team_models=[ndm, "ag-model-a", "ag-model-b"],  # access-group models
+        proxy_model_list=["proxy-model"],
+        user_model=None,
+        infer_model_from_keys=False,
+        llm_router=None,
+    )
+    assert ndm not in result
+    assert "proxy-model" not in result  # sentinel suppresses unrestricted fall-through
+    assert set(result) == {"ag-model-a", "ag-model-b"}
+
+

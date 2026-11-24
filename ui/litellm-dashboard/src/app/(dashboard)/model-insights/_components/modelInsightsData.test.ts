@@ -24,7 +24,7 @@ describe("buildSeries", () => {
       row({ date: "2026-01-01", requests: 1 }),
       row({ date: "2026-01-07", requests: 2 }),
       row({ date: "2026-01-08", requests: 4 }),
-      row({ date: "2026-01-02", model_group: "b", requests: 8 }),
+      row({ date: "2026-01-02", model_group: "b", model: "b", requests: 8 }),
     ];
     expect(buildSeries(rows, ["a", "b"], "requests", { ...range, granularity: "week" })).toEqual([
       { date: "2026-01-01", a: 3, b: 8 },
@@ -75,6 +75,24 @@ describe("buildSeries", () => {
     expect(fromFirstUse.at(-1)?.date).toBe("2026-03-20");
   });
 
+  it("merges rows from different model groups that resolved to the same model", () => {
+    const rows = [
+      row({ date: "2026-01-01", model_group: "team-a", model: "openai/gpt-5.4", requests: 3 }),
+      row({ date: "2026-01-01", model_group: "team-b", model: "openai/gpt-5.4", requests: 4 }),
+    ];
+    expect(
+      buildSeries(rows, ["openai/gpt-5.4"], "requests", {
+        start: "2026-01-01",
+        end: "2026-01-03",
+        granularity: "day",
+      }),
+    ).toEqual([
+      { date: "2026-01-01", "openai/gpt-5.4": 7 },
+      { date: "2026-01-02", "openai/gpt-5.4": 0 },
+      { date: "2026-01-03", "openai/gpt-5.4": 0 },
+    ]);
+  });
+
   it("keeps weekly buckets on the original grid when trimming idle weeks", () => {
     const rows = [row({ date: "2026-03-20", requests: 3 })];
     const weekly = buildSeries(rows, ["a"], "requests", {
@@ -122,42 +140,95 @@ describe("buildBucketTotals", () => {
 
 describe("modelOrder", () => {
   it("orders models by the selected metric, largest first", () => {
-    const rows = [row({ model_group: "a", spend: 1, requests: 9 }), row({ model_group: "b", spend: 5, requests: 1 })];
+    const rows = [row({ model_group: "a", spend: 1, requests: 9 }), row({ model_group: "b", model: "b", spend: 5, requests: 1 })];
     expect(modelOrder(rows, "spend")).toEqual(["b", "a"]);
     expect(modelOrder(rows, "requests")).toEqual(["a", "b"]);
+  });
+
+  it("collapses aliases that resolved to the same model into one entry", () => {
+    const rows = [
+      row({ model_group: "alias-1", model: "openai/gpt-5.4", requests: 3 }),
+      row({ model_group: "alias-2", model: "openai/gpt-5.4", requests: 4 }),
+    ];
+    expect(modelOrder(rows, "requests")).toEqual(["openai/gpt-5.4"]);
+  });
+
+  it("keeps unattributed models under their own group instead of merging them", () => {
+    const rows = [
+      row({ model_group: "a", model: "unknown", requests: 3 }),
+      row({ model_group: "b", model: "unknown", requests: 4 }),
+      row({ model_group: "c", model: "unknown-model", requests: 5 }),
+      row({ model_group: "d", model: "", requests: 6 }),
+    ];
+    expect(modelOrder(rows, "requests")).toEqual(["d", "c", "b", "a"]);
   });
 });
 
 describe("rankModels", () => {
   const range = { start: "2026-01-01", end: "2026-01-10" };
-  const totals = [row({ model_group: "a", requests: 40 }), row({ model_group: "b", requests: 40 })];
+  const totals = [row({ model_group: "a", requests: 40 }), row({ model_group: "b", model: "b", requests: 40 })];
 
   it("computes share and the change in share between the first and second half of the range", () => {
     const daily = [
       row({ date: "2026-01-01", model_group: "a", requests: 30 }),
-      row({ date: "2026-01-01", model_group: "b", requests: 10 }),
+      row({ date: "2026-01-01", model_group: "b", model: "b", requests: 10 }),
       row({ date: "2026-01-10", model_group: "a", requests: 10 }),
-      row({ date: "2026-01-10", model_group: "b", requests: 30 }),
+      row({ date: "2026-01-10", model_group: "b", model: "b", requests: 30 }),
     ];
     const ranked = rankModels(totals, daily, "requests", range);
-    expect(ranked.find((m) => m.model_group === "a")).toMatchObject({ share: 50, delta: -50 });
-    expect(ranked.find((m) => m.model_group === "b")).toMatchObject({ share: 50, delta: 50 });
+    expect(ranked.find((m) => m.model === "a")).toMatchObject({ share: 50, delta: -50 });
+    expect(ranked.find((m) => m.model === "b")).toMatchObject({ share: 50, delta: 50 });
   });
 
   it("splits at the middle of the range, not the middle of the days that had usage", () => {
     const daily = [
       row({ date: "2026-01-01", model_group: "a", requests: 10 }),
-      row({ date: "2026-01-02", model_group: "b", requests: 10 }),
-      row({ date: "2026-01-03", model_group: "b", requests: 10 }),
+      row({ date: "2026-01-02", model_group: "b", model: "b", requests: 10 }),
+      row({ date: "2026-01-03", model_group: "b", model: "b", requests: 10 }),
     ];
     const ranked = rankModels(totals, daily, "requests", range);
-    expect(ranked.find((m) => m.model_group === "a")?.delta).toBe(0);
+    expect(ranked.find((m) => m.model === "a")?.delta).toBe(0);
   });
 
   it("shows no change when one half of the range has no usage to compare against", () => {
     const daily = [row({ date: "2026-01-10", model_group: "a", requests: 10 })];
     const ranked = rankModels(totals, daily, "requests", range);
     expect(ranked.map((m) => m.delta)).toEqual([0, 0]);
+  });
+
+  it("merges aliases sharing an underlying model and renormalizes shares to the returned set", () => {
+    const totals = [
+      row({ model_group: "alias-1", model: "openai/gpt-5.4", provider: "openai", requests: 30 }),
+      row({ model_group: "alias-2", model: "openai/gpt-5.4", provider: "openai", requests: 10 }),
+      row({ model_group: "other", model: "openai/gpt-5.5", provider: "openai", requests: 60 }),
+    ];
+    const ranked = rankModels(totals, [], "requests", range);
+    expect(ranked).toHaveLength(2);
+    expect(ranked.find((m) => m.model === "openai/gpt-5.4")).toMatchObject({ share: 40, provider: "openai" });
+  });
+
+  it("merges the same model served through different providers under one row", () => {
+    const totals = [
+      row({ model_group: "a", model: "gpt-5.4", provider: "openai", requests: 3 }),
+      row({ model_group: "b", model: "gpt-5.4", provider: "azure", requests: 4 }),
+    ];
+    const ranked = rankModels(totals, [], "requests", range);
+    expect(ranked).toHaveLength(1);
+    expect(ranked[0]).toMatchObject({ model: "gpt-5.4", provider: "openai" });
+  });
+
+  it("shows a continuous trend when aliases migrate to the same underlying model mid-period", () => {
+    const totals = [
+      row({ model_group: "alias-1", model: "openai/gpt-5.4", requests: 40 }),
+      row({ model_group: "alias-2", model: "openai/gpt-5.4", requests: 40 }),
+    ];
+    const daily = [
+      row({ date: "2026-01-02", model_group: "alias-1", model: "openai/gpt-5.4", requests: 40 }),
+      row({ date: "2026-01-09", model_group: "alias-2", model: "openai/gpt-5.4", requests: 40 }),
+    ];
+    const ranked = rankModels(totals, daily, "requests", range);
+    expect(ranked).toHaveLength(1);
+    expect(ranked[0]).toMatchObject({ model: "openai/gpt-5.4", share: 100, delta: 0 });
   });
 });
 

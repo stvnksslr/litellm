@@ -835,6 +835,45 @@ class ANTHROPIC_HOSTED_TOOLS(str, Enum):
     TOOL_SEARCH_TOOL = "tool_search_tool"
 
 
+_ANTHROPIC_CLIENT_EXECUTED_TOOLS: Final = frozenset(
+    (ANTHROPIC_HOSTED_TOOLS.BASH, ANTHROPIC_HOSTED_TOOLS.TEXT_EDITOR, ANTHROPIC_HOSTED_TOOLS.MEMORY)
+)
+
+
+def _anthropic_tool_family(tool_type: str | None) -> ANTHROPIC_HOSTED_TOOLS | None:
+    if not tool_type:
+        return None
+    return next((family for family in ANTHROPIC_HOSTED_TOOLS if tool_type.startswith(family.value)), None)
+
+
+def is_anthropic_hosted_tool_type(tool_type: str | None) -> bool:
+    """Return True when ``tool_type`` names an Anthropic server-side tool, which Anthropic runs itself.
+
+    Tool types carry a date suffix (e.g. ``web_search_20250305``, ``tool_search_tool_regex_20251119``), so match on
+    the family prefix. ``bash``, ``text_editor`` and ``memory`` are Anthropic-defined but run by the client.
+    """
+    family: Final = _anthropic_tool_family(tool_type)
+    return family is not None and family not in _ANTHROPIC_CLIENT_EXECUTED_TOOLS
+
+
+def is_anthropic_client_executed_tool_type(tool_type: str | None) -> bool:
+    return _anthropic_tool_family(tool_type) in _ANTHROPIC_CLIENT_EXECUTED_TOOLS
+
+
+def is_anthropic_web_search_tool(tool: Mapping[str, object]) -> bool:
+    """Return True when ``tool`` is Anthropic's server-side web search tool.
+
+    Matches the dated hosted type (``web_search_20250305`` and successors) or
+    the bare hosted name Claude Code sends. A caller-defined function tool that
+    happens to be named ``web_search`` carries an ``input_schema`` and is a
+    client tool, so it is deliberately excluded.
+    """
+    tool_type = tool.get("type")
+    if isinstance(tool_type, str) and tool_type.startswith(ANTHROPIC_HOSTED_TOOLS.WEB_SEARCH.value):
+        return True
+    return tool.get("name") == ANTHROPIC_HOSTED_TOOLS.WEB_SEARCH.value and "input_schema" not in tool
+
+
 class ANTHROPIC_BETA_HEADER_VALUES(str, Enum):
     """
     Known beta header values for Anthropic.

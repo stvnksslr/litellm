@@ -53,7 +53,8 @@ describe("ModelInsightsView", () => {
   it("shows the ranking with share from the API response", async () => {
     render(<ModelInsightsView accessToken="token" />);
 
-    expect(await screen.findByText("fast-chat")).toBeInTheDocument();
+    expect(await screen.findByText("openai/gpt-5.4-mini")).toBeInTheDocument();
+    expect(screen.queryByText("fast-chat")).not.toBeInTheDocument();
     expect(screen.getByText("by openai")).toBeInTheDocument();
     expect(screen.getAllByText("100.0%")).toHaveLength(1);
     expect(screen.queryByText("Top models by task")).not.toBeInTheDocument();
@@ -68,7 +69,7 @@ describe("ModelInsightsView", () => {
 
   it("refetches with the selected metric so top models are ranked by it", async () => {
     render(<ModelInsightsView accessToken="token" />);
-    await screen.findByText("fast-chat");
+    await screen.findByText("openai/gpt-5.4-mini");
 
     await userEvent.click(screen.getByRole("tab", { name: "requests" }));
 
@@ -90,7 +91,7 @@ describe("ModelInsightsView", () => {
 
   it("keeps the previous ranking, dimmed, until the new metric's data arrives", async () => {
     render(<ModelInsightsView accessToken="token" />);
-    await screen.findByText("fast-chat");
+    await screen.findByText("openai/gpt-5.4-mini");
     let resolve: (value: typeof response) => void = () => {};
     vi.mocked(apiClient.get).mockImplementation(() => new Promise((done) => (resolve = done as typeof resolve)));
 
@@ -108,7 +109,7 @@ describe("ModelInsightsView", () => {
 
   it("charts one bar per day by default and switches to weekly bars", async () => {
     render(<ModelInsightsView accessToken="token" />);
-    await screen.findByText("fast-chat");
+    await screen.findByText("openai/gpt-5.4-mini");
     const chart = screen.getByTestId("usage-chart");
 
     expect(screen.getByRole("tab", { name: "Daily" })).toHaveAttribute("aria-selected", "true");
@@ -121,5 +122,24 @@ describe("ModelInsightsView", () => {
     expect(chart).toHaveAttribute("data-buckets", "12");
     expect(chart).toHaveAttribute("data-first", "2026-07-13");
     expect(screen.getByText("Weekly tokens across your gateway")).toBeInTheDocument();
+  });
+
+  it("collapses aliases that resolve to the same underlying model into one ranked row", async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({
+      ...response,
+      top_models: [
+        { ...metrics, model_group: "fast-chat", requests: 12 },
+        { ...metrics, model_group: "fast-chat-eu", requests: 12 },
+      ],
+      daily: [
+        { ...metrics, model_group: "fast-chat", date: "2026-09-28" },
+        { ...metrics, model_group: "fast-chat-eu", date: "2026-09-28" },
+      ],
+    });
+    render(<ModelInsightsView accessToken="token" />);
+
+    expect(await screen.findByText("openai/gpt-5.4-mini")).toBeInTheDocument();
+    expect(screen.queryByText("fast-chat")).not.toBeInTheDocument();
+    expect(screen.getAllByText("100.0%")).toHaveLength(1);
   });
 });

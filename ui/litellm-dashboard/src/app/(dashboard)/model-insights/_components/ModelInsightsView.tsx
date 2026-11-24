@@ -69,7 +69,7 @@ const RankingRow = ({ model, rank }: { model: RankedModel; rank: number }) => {
       <span className="text-sm tabular-nums text-muted-foreground">{rank}</span>
       <ProviderLogo provider={model.provider} className="size-9 rounded-md border p-1" />
       <div className="min-w-0">
-        <p className="truncate font-medium">{model.model_group}</p>
+        <p className="truncate font-medium">{model.model}</p>
         <p className="truncate text-sm text-muted-foreground">
           {t("modelInsights.modelInsightsView.byProvider", { provider: model.provider })}
         </p>
@@ -222,12 +222,12 @@ export default function ModelInsightsView({ accessToken }: { accessToken: string
         <CardContent className="grid gap-x-12 md:grid-cols-2">
           <ol className="divide-y">
             {ranking.slice(0, RANKING_ROWS).map((model, index) => (
-              <RankingRow key={model.model_group} model={model} rank={index + 1} />
+              <RankingRow key={model.model} model={model} rank={index + 1} />
             ))}
           </ol>
           <ol className="divide-y">
             {ranking.slice(RANKING_ROWS).map((model, index) => (
-              <RankingRow key={model.model_group} model={model} rank={RANKING_ROWS + index + 1} />
+              <RankingRow key={model.model} model={model} rank={RANKING_ROWS + index + 1} />
             ))}
           </ol>
         </CardContent>

@@ -8,6 +8,7 @@ from litellm.integrations.anthropic_cache_control_hook import AnthropicCacheCont
 from litellm.litellm_core_utils.core_helpers import as_str_mapping
 from litellm.llms.anthropic.common_utils import (
     flatten_unencrypted_web_search_results_in_anthropic_messages,
+    repair_nameless_tool_use_blocks_in_anthropic_messages,
     sanitize_tool_use_ids_in_anthropic_messages,
     strip_empty_content_blocks_from_anthropic_messages,
 )
@@ -249,7 +250,9 @@ def anthropic_system_to_openai_message(system: object) -> ChatCompletionSystemMe
 def normalize_native_messages(messages: Sequence[object]) -> list[dict[str, object]]:
     """Apply the block rewrites every /v1/messages request gets before it reaches a provider."""
     return flatten_unencrypted_web_search_results_in_anthropic_messages(
-        sanitize_tool_use_ids_in_anthropic_messages(strip_empty_content_blocks_from_anthropic_messages(messages))
+        repair_nameless_tool_use_blocks_in_anthropic_messages(
+            sanitize_tool_use_ids_in_anthropic_messages(strip_empty_content_blocks_from_anthropic_messages(messages))
+        )
     )
 
 

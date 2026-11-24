@@ -22,7 +22,13 @@ export type ModelInsightsResponse = {
   top_models: ModelMetric[];
 };
 
-export type RankedModel = { model_group: string; provider: string; share: number; delta: number };
+export type RankedModel = { model: string; provider: string; share: number; delta: number };
+
+const UNATTRIBUTED_MODELS: ReadonlySet<string> = new Set(["", "unknown", "unknown-model"]);
+
+export const resolvedModelKey = (row: Pick<ModelMetric, "model" | "model_group">) =>
+  UNATTRIBUTED_MODELS.has(row.model) ? row.model_group : row.model;
+
 export type Granularity = "day" | "week";
 
 const DAY_MS = 86_400_000;
@@ -58,7 +64,10 @@ export type DateRange = { start: string; end: string };
 
 export const modelOrder = (rows: DailyMetric[], metric: Metric) => {
   const totals = new Map<string, number>();
-  for (const row of rows) totals.set(row.model_group, (totals.get(row.model_group) ?? 0) + metricValue(row, metric));
+  for (const row of rows) {
+    const key = resolvedModelKey(row);
+    totals.set(key, (totals.get(key) ?? 0) + metricValue(row, metric));
+  }
   return [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([model]) => model);
 };
 
@@ -74,7 +83,7 @@ export const buildSeries = (rows: DailyMetric[], models: string[], metric: Metri
   })) as Record<string, number | string>[];
   for (const row of rows) {
     const bucket = buckets[Math.floor((toDay(row.date) - origin) / bucketMs)];
-    if (bucket) bucket[row.model_group] = Number(bucket[row.model_group] ?? 0) + metricValue(row, metric);
+    if (bucket) bucket[resolvedModelKey(row)] = Number(bucket[resolvedModelKey(row)] ?? 0) + metricValue(row, metric);
   }
   const firstActive = buckets.findIndex((bucket) => models.some((model) => Number(bucket[model]) > 0));
   const visibleFrom = Math.min(
@@ -95,11 +104,12 @@ export const buildBucketTotals = (totals: DailyTotal[], metric: Metric, window: 
   return byBucket;
 };
 
-const shareByModel = (rows: { model_group: string; provider: string }[], values: number[]) => {
+const shareByModel = (rows: Pick<ModelMetric, "model" | "model_group" | "provider">[], values: number[]) => {
   const totals = new Map<string, { provider: string; value: number }>();
   rows.forEach((row, index) => {
-    const current = totals.get(row.model_group) ?? { provider: row.provider, value: 0 };
-    totals.set(row.model_group, { provider: row.provider, value: current.value + values[index] });
+    const key = resolvedModelKey(row);
+    const current = totals.get(key) ?? { provider: row.provider, value: 0 };
+    totals.set(key, { provider: current.provider, value: current.value + values[index] });
   });
   const grand = [...totals.values()].reduce((sum, entry) => sum + entry.value, 0);
   return { totals, grand };
@@ -137,10 +147,10 @@ export const rankModels = (
   const comparable = earlier.hasUsage && later.hasUsage;
   return [...totals.entries()]
     .sort((a, b) => b[1].value - a[1].value)
-    .map(([model_group, entry]) => ({
-      model_group,
+    .map(([model, entry]) => ({
+      model,
       provider: entry.provider,
       share: grand === 0 ? 0 : (entry.value / grand) * 100,
-      delta: comparable ? later.of(model_group) - earlier.of(model_group) : 0,
+      delta: comparable ? later.of(model) - earlier.of(model) : 0,
     }));
 };

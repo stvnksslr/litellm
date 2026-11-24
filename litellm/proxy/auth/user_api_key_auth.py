@@ -2794,7 +2794,12 @@ async def user_api_key_auth_builder(
                             team_id=valid_token.team_id,
                         )
                         skip_budget_checks = request_skips_budget_checks(
-                            route=route, model=model, llm_router=llm_router, request_body=request_data
+                            route=route,
+                            model=model,
+                            llm_router=llm_router,
+                            request_body=request_data,
+                            team_id=valid_token.team_id,
+                            team_model_aliases=valid_token.team_model_aliases,
                         )
 
                         # Fetch project object for JWT path if project_id is set
@@ -3302,7 +3307,12 @@ async def validate_resolved_virtual_key(  # noqa: C901  # Preserve ordering of e
             team_id=valid_token.team_id,
         )
         skip_budget_checks: Final = request_skips_budget_checks(
-            route=route, model=model, llm_router=llm_router, request_body=request_data
+            route=route,
+            model=model,
+            llm_router=llm_router,
+            request_body=request_data,
+            team_id=valid_token.team_id,
+            team_model_aliases=valid_token.team_model_aliases,
         )
 
         # Check 3. Check if user is in their team budget
@@ -4125,6 +4135,7 @@ async def run_centralized_common_checks(
         request=request,
         llm_router=llm_router,
         team_id=user_api_key_auth_obj.team_id,
+        team_model_aliases=user_api_key_auth_obj.team_model_aliases,
     )
     typed_team_object: Final[LiteLLM_TeamTable | None] = (
         team_object if isinstance(team_object, LiteLLM_TeamTable) else None
@@ -4356,6 +4367,7 @@ def _should_skip_budget_checks(
     request: Request | None,
     llm_router: litellm.Router | None,
     team_id: str | None = None,
+    team_model_aliases: Mapping[str, str] | None = None,
 ) -> bool:
     model: Final = _get_model_from_request_context(
         request_data=request_data,
@@ -4364,7 +4376,14 @@ def _should_skip_budget_checks(
         llm_router=llm_router,
         team_id=team_id,
     )
-    return request_skips_budget_checks(route=route, model=model, llm_router=llm_router, request_body=request_data)
+    return request_skips_budget_checks(
+        route=route,
+        model=model,
+        llm_router=llm_router,
+        request_body=request_data,
+        team_id=team_id,
+        team_model_aliases=team_model_aliases,
+    )
 
 
 def _resolve_request_principal(request: Request, valid_token: UserAPIKeyAuth) -> Principal:
@@ -5015,10 +5034,13 @@ async def _run_post_custom_auth_checks(
     # spend some other model accrued. The JWT and virtual-key paths already skip
     # every budget check for these; this path did not, so the same request could
     # be refused under custom auth and served under the other two.
-    skip_budget_checks: Final = (
-        is_model_cost_zero(model=current_model, llm_router=llm_router)
-        if current_model is not None and llm_router is not None
-        else False
+    skip_budget_checks: Final = request_skips_budget_checks(
+        route=route,
+        model=current_model,
+        llm_router=llm_router,
+        request_body=request_data,
+        team_id=valid_token.team_id,
+        team_model_aliases=valid_token.team_model_aliases,
     )
 
     # 3. Check key-level model_max_budget

@@ -17,7 +17,7 @@ from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from functools import partial
-from itertools import chain
+from itertools import accumulate, chain, pairwise, product
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final, Generic, Literal, NoReturn, Optional, Protocol, TypeAlias
 
@@ -43,7 +43,7 @@ from litellm.constants import (
     REGISTRY_ERROR_NEGATIVE_CACHE_TTL,
     TAG_REGISTRY_MAX_SIZE,
 )
-from litellm.litellm_core_utils.core_helpers import as_str_mapping
+from litellm.litellm_core_utils.core_helpers import as_object_list, as_str_mapping
 from litellm.litellm_core_utils.dd_tracing import tracer
 from litellm.litellm_core_utils.decisions_pricing import decisions_pricing_fields, decisions_request_price
 from litellm.litellm_core_utils.get_llm_provider_logic import get_llm_provider
@@ -182,7 +182,7 @@ from litellm.repositories.team_repository import TeamRepository
 from litellm.repositories.user_repository import UserRepository
 from litellm.responses.additional_tools import additional_tools_in_input
 from litellm.router import Router
-from litellm.router_api import RegistryReader
+from litellm.router_api import RegistryReader, RouterRegistry, RouterSettings, fallback_chain
 from litellm.types.proxy.auth.auth_checks import UserNotFoundError
 from litellm.types.proxy.model_access_group_budget import ModelAccessGroupBudget
 from litellm.types.router import DeploymentTypedDict
@@ -719,6 +719,12 @@ def _has_ptu_flat_cost(deployments: Sequence[DeploymentTypedDict]) -> bool:
     return False
 
 
+def _get_deployments_for_model(
+    model: str, llm_router: RegistryReader, team_id: str | None = None
+) -> tuple[DeploymentTypedDict, ...]:
+    return tuple(llm_router.registry().deployments(model, team_id=team_id) or ())
+
+
 def _is_cost_explicitly_configured(deployments: Sequence[DeploymentTypedDict]) -> bool:
     """
     Check if any of the deployments has cost fields explicitly set in its
@@ -767,6 +773,144 @@ def _has_explicit_positive_cost(deployments: Sequence[DeploymentTypedDict]) -> b
 def _deployment_query_price(litellm_params: Mapping[str, object], cost_entry: Mapping[str, object]) -> float | None:
     provider: Final = litellm_params.get("custom_llm_provider") or str(litellm_params.get("model")).partition("/")[0]
     return decisions_request_price({**cost_entry, "litellm_provider": provider}, decisions_pricing_fields(cost_entry))
+
+
+class _BudgetRouter(Protocol):
+    def registry(self) -> RouterRegistry: ...
+
+    def settings(self) -> RouterSettings: ...
+
+
+def _is_model_budget_exempt(
+    model: str | list[str] | None,
+    llm_router: RegistryReader | None,
+    team_id: str | None = None,
+) -> bool:
+    """
+    True when every requested model group is explicitly marked ``model_info.skip_budget_checks: true``
+    on all of its deployments. An admin opt-in that, unlike a zero cost, never infers intent from pricing.
+    """
+    if model is None or llm_router is None:
+        return False
+    model_names: Final = (model,) if isinstance(model, str) else tuple(model)
+    return all(_group_is_budget_exempt(name, llm_router, team_id) for name in model_names)
+
+
+def _group_is_budget_exempt(model: str, llm_router: RegistryReader, team_id: str | None) -> bool:
+    deployments: Final = _get_deployments_for_model(model=model, llm_router=llm_router, team_id=team_id)
+    return bool(deployments) and all(
+        _model_info_of(deployment).get("skip_budget_checks") is True for deployment in deployments
+    )
+
+
+def _model_info_of(deployment: DeploymentTypedDict) -> Mapping[str, object]:
+    return as_str_mapping(deployment.get("model_info")) or _NO_MODEL_INFO  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]  # DeploymentTypedDict leaves model_info untyped
+
+
+def _resolve_request_model(model: str, team_model_aliases: Mapping[str, str] | None) -> str:
+    """
+    The model name the request routes to, after the team alias map and then ``litellm.model_alias_map``, the
+    same order the proxy rewrites it in. Resolving to the one routed name keeps the gate fail-closed.
+    """
+    team_resolved: Final = (team_model_aliases or {}).get(model, model)
+    return litellm.model_alias_map.get(team_resolved, team_resolved)
+
+
+def _requested_model_group_names(
+    model: str, llm_router: _BudgetRouter, team_model_aliases: Mapping[str, str] | None
+) -> frozenset[str]:
+    routed: Final = _resolve_request_model(model=model, team_model_aliases=team_model_aliases)
+    alias_target: Final = llm_router.registry().resolve(routed, kind="alias")
+    return frozenset((routed,)) | frozenset((alias_target,) if alias_target is not None else ())
+
+
+FallbackEntry: TypeAlias = str | Mapping[str, object]
+
+
+def _fallback_entry(item: object) -> FallbackEntry | None:
+    return item if isinstance(item, str) else as_str_mapping(item)
+
+
+def _as_fallback_entries(value: object) -> tuple[FallbackEntry, ...]:
+    """Entries shaped like fallbacks. Also the validation boundary for the untrusted request-body ``fallbacks``."""
+    return tuple(entry for item in as_object_list(value) or () if (entry := _fallback_entry(item)) is not None)
+
+
+def _router_fallbacks(llm_router: _BudgetRouter) -> tuple[FallbackEntry, ...]:
+    settings: Final = llm_router.settings()
+    return (
+        *_as_fallback_entries(settings.fallbacks),  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]  # RouterSettings keeps the config's untyped lists
+        *_as_fallback_entries(settings.context_window_fallbacks),  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]  # same
+        *_as_fallback_entries(settings.content_policy_fallbacks),  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]  # same
+    )
+
+
+def _mapping_fallback_targets(model: str, key: str, targets: object) -> tuple[str, ...]:
+    names: Final = tuple(target for target in as_object_list(targets) or () if isinstance(target, str))
+    if not names:
+        return ()
+    matched, _ = fallback_chain(({key: [*names]},), model)  # mutable-ok: fallback_chain takes the config's list shape
+    return tuple(matched or ())
+
+
+def _fallback_targets(model: str, fallback_entry: FallbackEntry) -> tuple[str, ...]:
+    """
+    Fallback groups one entry offers ``model``: a bare name applies to any model, and a mapping key matches the
+    way the router matches it (exact, provider-stripped, provider-prefixed or ``"*"``). Every key of a mapping
+    is considered, so the set errs toward more reachable groups, never fewer.
+    """
+    if isinstance(fallback_entry, str):
+        return (fallback_entry,)
+    return tuple(
+        chain.from_iterable(_mapping_fallback_targets(model, key, targets) for key, targets in fallback_entry.items())
+    )
+
+
+def _expand_by_fallbacks(groups: frozenset[str], fallbacks: tuple[FallbackEntry, ...]) -> frozenset[str]:
+    return groups | frozenset(
+        chain.from_iterable(_fallback_targets(model, entry) for model, entry in product(groups, fallbacks))
+    )
+
+
+def _reachable_model_groups(models: frozenset[str], fallbacks: tuple[FallbackEntry, ...]) -> frozenset[str] | None:
+    """
+    Every model group a request for ``models`` can end up billing: the fixed point of following fallbacks, so
+    cycles are safe. None when that point is not reached within the depth bound, so the caller fails closed.
+    """
+    steps: Final = accumulate(
+        range(DEFAULT_MAX_RECURSE_DEPTH), lambda groups, _: _expand_by_fallbacks(groups, fallbacks), initial=models
+    )
+    return next((later for earlier, later in pairwise(steps) if later == earlier), None)
+
+
+def should_skip_budget_checks_for_model(
+    model: str | list[str] | None,
+    llm_router: _BudgetRouter | None,
+    team_id: str | None = None,
+    team_model_aliases: Mapping[str, str] | None = None,
+    request_fallbacks: object = None,
+) -> bool:
+    """
+    Whether budget enforcement is skipped for a request: every model group it can reach, fallbacks included
+    (the client's own ``fallbacks`` too), has an explicit zero cost or ``model_info.skip_budget_checks: true``.
+    Skipping also skips the budget reservation, so one paid group anywhere in that set means no skip.
+    """
+    if model is None or llm_router is None:
+        return False
+    requested: Final = (model,) if isinstance(model, str) else tuple(model)
+    reachable: Final = _reachable_model_groups(
+        models=frozenset(
+            chain.from_iterable(_requested_model_group_names(m, llm_router, team_model_aliases) for m in requested)
+        ),
+        fallbacks=(*_as_fallback_entries(request_fallbacks), *_router_fallbacks(llm_router)),
+    )
+    if not reachable:
+        return False
+    return all(
+        is_model_cost_zero(model=group, llm_router=llm_router)
+        or _is_model_budget_exempt(model=group, llm_router=llm_router, team_id=team_id)
+        for group in reachable
+    )
 
 
 _EMPTY_COST_ENTRY: Final[Mapping[str, object]] = MappingProxyType({})
@@ -1126,12 +1270,20 @@ def request_skips_budget_checks(
     llm_router: Router | None,
     *,
     request_body: Mapping[str, object] | None = None,
+    team_id: str | None = None,
+    team_model_aliases: Mapping[str, str] | None = None,
 ) -> bool:
     if route_skips_budget_checks(route=route):
         return True
     if request_body is not None and is_mcp_discovery_request(route=route, request_body=request_body):
         return True
-    return is_model_cost_zero(model=model, llm_router=llm_router)
+    return should_skip_budget_checks_for_model(
+        model=model,
+        llm_router=llm_router,
+        team_id=team_id,
+        team_model_aliases=team_model_aliases,
+        request_fallbacks=(request_body or {}).get("fallbacks"),
+    )
 
 
 async def common_checks(
@@ -4820,6 +4972,64 @@ async def get_models_from_access_groups(
 
 
 _get_models_from_access_groups: Final = get_models_from_access_groups
+
+
+async def _get_listed_models_from_access_groups(
+    access_group_ids: Sequence[str],
+    prisma_client: PrismaClient | None = None,
+    user_api_key_cache: UserApiKeyCache | None = None,
+    proxy_logging_obj: ProxyLogging | None = None,
+) -> list[str]:
+    """
+    Collect model names for the /v1/models listing from unified access groups.
+
+    Uses ``listed_model_names`` when non-empty, falling back to
+    ``access_model_names`` so the listing stays in sync with access when no
+    explicit override is configured. Access checks are unaffected — they
+    continue to use :func:`_get_models_from_access_groups`.
+    """
+    if not access_group_ids:
+        return []
+
+    if prisma_client is None or user_api_key_cache is None:
+        from litellm.proxy.proxy_server import (
+            prisma_client as _prisma_client,
+        )
+        from litellm.proxy.proxy_server import (
+            proxy_logging_obj as _proxy_logging_obj,
+        )
+        from litellm.proxy.proxy_server import (
+            user_api_key_cache as _user_api_key_cache,
+        )
+
+        prisma_client = prisma_client or _prisma_client
+        user_api_key_cache = user_api_key_cache or _user_api_key_cache
+        proxy_logging_obj = proxy_logging_obj or _proxy_logging_obj
+
+    if user_api_key_cache is None:
+        return []
+
+    models: list[str] = []
+    for ag_id in access_group_ids:
+        try:
+            ag = await get_access_object(
+                access_group_id=ag_id,
+                prisma_client=prisma_client,
+                user_api_key_cache=user_api_key_cache,
+                proxy_logging_obj=proxy_logging_obj,
+            )
+            listed = getattr(ag, "listed_model_names", None) or []
+            if listed:
+                models.extend(listed)
+            else:
+                models.extend(getattr(ag, "access_model_names", []) or [])
+        except Exception:
+            verbose_proxy_logger.debug(
+                "Could not fetch access group %s for listed model names",
+                ag_id,
+            )
+
+    return list(dict.fromkeys(models))
 
 
 async def get_mcp_server_ids_from_access_groups(

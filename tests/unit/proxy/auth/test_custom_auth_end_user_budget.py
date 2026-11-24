@@ -606,3 +606,45 @@ async def test_custom_auth_video_retrieval_still_rejects_an_expired_token() -> N
         await _post_custom_auth_video_request(expired_token, "GET", "/v1/videos/{video_id}", {"video_id": _VIDEO_ID})
 
     assert exc_info.value.type == ProxyErrorTypes.expired_key
+
+
+def _router_with_model(model_info: dict) -> litellm.Router:
+    return litellm.Router(
+        model_list=[
+            {
+                "model_name": "team-model",
+                "litellm_params": {"model": "openai/gpt-4o", "api_key": "sk-test"},
+                "model_info": model_info,
+            }
+        ]
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "model_info, key_budget_is_checked",
+    [
+        ({"skip_budget_checks": True}, False),
+        ({}, True),
+    ],
+)
+async def test_custom_auth_honors_budget_exempt_models_like_the_other_auth_paths(model_info, key_budget_is_checked):
+    valid_token = UserAPIKeyAuth(token="test_token", model_max_budget={"team-model": {"budget_limit": 1.0}})
+
+    with (
+        patch("litellm.proxy.proxy_server.llm_router", _router_with_model(model_info)),
+        patch("litellm.proxy.proxy_server.general_settings", {}),
+        patch(
+            "litellm.proxy.auth.user_api_key_auth._check_key_model_budget_with_fallback",
+            new_callable=AsyncMock,
+        ) as mock_key_budget_check,
+    ):
+        await _run_post_custom_auth_checks(
+            valid_token=valid_token,
+            request=None,
+            request_data={"model": "team-model"},
+            route="/v1/chat/completions",
+            parent_otel_span=None,
+        )
+
+    assert mock_key_budget_check.await_count == (1 if key_budget_is_checked else 0)

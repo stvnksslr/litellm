@@ -32,7 +32,7 @@ from litellm.integrations.custom_logger_v2.legacy import (
 )
 from litellm.integrations.custom_logger_v2.logger import CustomLoggerV2
 from litellm.integrations.custom_logger_v2.outcomes import Patch
-from litellm.litellm_core_utils.core_helpers import as_str_mapping, drops_unsupported_params
+from litellm.litellm_core_utils.core_helpers import as_object_list, as_str_mapping, drops_unsupported_params
 from litellm.litellm_core_utils.exception_mapping_utils import exception_type
 from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLoggingObj
 from litellm.litellm_core_utils.reasoning_effort_capability import (
@@ -55,14 +55,14 @@ from litellm.llms.base_llm.chat.transformation import BaseLLMException
 from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
 from litellm.llms.custom_httpx.llm_http_handler import BaseLLMHTTPHandler
 from litellm.responses.mcp.tool_precheck import may_name_litellm_mcp_gateway
-from litellm.types.llms.anthropic import AllAnthropicToolsValues
+from litellm.types.llms.anthropic import AllAnthropicToolsValues, is_anthropic_web_search_tool
 from litellm.types.llms.anthropic_messages.anthropic_request import AnthropicMetadata
 from litellm.types.llms.anthropic_messages.anthropic_response import (
     AnthropicMessagesResponse,
 )
 from litellm.types.router import GenericLiteLLMParams
 from litellm.types.utils import CallTypes, LlmProviders, LlmProvidersSet
-from litellm.utils import ProviderConfigManager, client
+from litellm.utils import ProviderConfigManager, cached_get_model_info_helper, client
 
 from ..adapters.handler import LiteLLMMessagesToCompletionTransformationHandler, request_safeguards_evaluator
 from ..responses_adapters.handler import LiteLLMMessagesToResponsesAPIHandler
@@ -125,6 +125,43 @@ def _responses_mode_is_lost_by_prefix_strip(
     return _bridges_to_responses_api(
         requested_model, custom_llm_provider, deployment_model_info
     ) and not _bridges_to_responses_api(resolved_model, custom_llm_provider, deployment_model_info)
+
+
+def _declares_responses_endpoint(model_info: object) -> bool:
+    supported_endpoints: Final = as_object_list((as_str_mapping(model_info) or {}).get("supported_endpoints"))
+    return supported_endpoints is not None and "/v1/responses" in supported_endpoints
+
+
+def _model_cost_declares_responses_endpoint(model: str, custom_llm_provider: str | None) -> bool:
+    """Look ``model`` up in the raw ``model_cost`` entry, which is the only place
+    ``supported_endpoints`` survives - ``ModelInfoBase`` drops the key."""
+    try:
+        resolved: Final = cached_get_model_info_helper(model=model, custom_llm_provider=custom_llm_provider)
+    except Exception as e:
+        verbose_logger.debug("_deployment_supports_responses_api: get_model_info failed for %s: %s", model, e)
+        return False
+    return _declares_responses_endpoint(
+        litellm.model_cost.get(resolved["key"])  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]  # legacy untyped registry
+    )
+
+
+def _deployment_supports_responses_api(model: str, custom_llm_provider: str | None, model_info: object) -> bool:
+    """Whether this deployment can serve ``/v1/responses``.
+
+    Resolution, first match wins: a per-deployment
+    ``model_info.supported_endpoints`` in config.yaml; then ``model_info.base_model``,
+    which is how an Azure deployment with a bespoke name (``azure/<resource>-gpt-5.6-...``)
+    already declares the real model it maps to for pricing; then the model name itself.
+
+    Deliberately does not consult ``mode``: every Azure entry in the model map is
+    ``"chat"`` even for models that also serve the Responses API.
+    """
+    if _declares_responses_endpoint(model_info):
+        return True
+    base_model: Final = (as_str_mapping(model_info) or {}).get("base_model")
+    if isinstance(base_model, str) and base_model:
+        return _model_cost_declares_responses_endpoint(base_model, custom_llm_provider)
+    return _model_cost_declares_responses_endpoint(model, custom_llm_provider)
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,8 +232,17 @@ def _should_route_to_responses_api(
     resolved_model: str | None = None,
     deployment_model_info: object = None,
     stop_sequences: Sequence[str] | None = None,
+    tools: Sequence[Mapping[str, object]] | None = None,
 ) -> bool:
     """Return True when the request should use the Responses API path.
+
+    OpenAI always routes there. Other providers route there to serve a
+    hosted tool that the chat/completions bridge cannot: Anthropic's
+    server-side web search has no chat/completions equivalent (it is silently
+    reduced to ``web_search_options``, which no reverse translation reads),
+    whereas the Responses API exposes it as a real hosted tool. Claude Code
+    sends web search as a standalone sub-request, so this keeps every other
+    request on the bridge it already uses.
 
     Set ``litellm.use_chat_completions_url_for_anthropic_messages = True`` to
     opt out and route OpenAI/Azure requests through chat/completions instead.
@@ -206,6 +252,12 @@ def _should_route_to_responses_api(
     if stop_sequences:
         return False
     if custom_llm_provider in _RESPONSES_API_PROVIDERS:
+        return True
+    if (
+        resolved_model is not None
+        and any(is_anthropic_web_search_tool(tool) for tool in tools or ())
+        and _deployment_supports_responses_api(resolved_model, custom_llm_provider, deployment_model_info)
+    ):
         return True
     if custom_llm_provider is None or requested_model is None or resolved_model is None:
         return False
@@ -880,7 +932,12 @@ def anthropic_messages_handler(
     if anthropic_messages_provider_config is None:
         # Route to Responses API for OpenAI / Azure, chat/completions for everything else.
         if kwargs.get("compaction") is None and _should_route_to_responses_api(
-            custom_llm_provider, original_model, model, kwargs.get("model_info"), stop_sequences=stop_sequences
+            custom_llm_provider,
+            original_model,
+            model,
+            kwargs.get("model_info"),
+            stop_sequences=stop_sequences,
+            tools=tools,
         ):
             return LiteLLMMessagesToResponsesAPIHandler.anthropic_messages_handler(
                 max_tokens=max_tokens,

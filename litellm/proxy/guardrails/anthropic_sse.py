@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
+from itertools import chain
 from types import MappingProxyType
 from typing import Final
 
 from litellm._logging import verbose_proxy_logger
 from litellm.litellm_core_utils.core_helpers import as_str_mapping
+from litellm.litellm_core_utils.prompt_templates.common_utils import parse_tool_call_arguments
 from litellm.llms.anthropic.messages.native.utils import filtered_safeguard_results, redacted_stop_details
 from litellm.llms.anthropic.messages.stream_assembly import (
     anthropic_message_delta_fields,
@@ -37,7 +39,7 @@ from litellm.llms.anthropic.messages.stream_assembly import (
     is_raw_sse_stream as is_raw_sse_stream,  # noqa: PLC0414  # public re-export
 )
 from litellm.types.llms.anthropic_messages.anthropic_response import AnthropicMessagesResponse
-from litellm.types.utils import Choices, ModelResponse
+from litellm.types.utils import ChatCompletionMessageToolCall, Choices, ModelResponse
 
 
 def model_response_text(response: ModelResponse) -> str:
@@ -182,6 +184,16 @@ def anthropic_sse_chunks_from_response(
         return _sse_chunks_of_events(error_events)
 
 
+def _require_parseable_tool_calls(response: ModelResponse) -> None:
+    # The adapter drops a tool call it cannot parse (a fork patch), so a rebuild would lose it silently
+    tool_calls: Final = chain.from_iterable(choice.message.tool_calls or () for choice in response.choices)
+    for tool_call in tool_calls:
+        if isinstance(tool_call, ChatCompletionMessageToolCall):
+            parse_tool_call_arguments(
+                tool_call.function.arguments, tool_name=tool_call.function.name, context="Anthropic SSE rebuild"
+            )
+
+
 def _rebuilt_sse_chunks(
     assembled: ModelResponse, source_chunks: Sequence[object], error_events: Sequence[str], keep_explanations: bool
 ) -> tuple[bytes, ...]:
@@ -193,8 +205,11 @@ def _rebuilt_sse_chunks(
     )
 
     adapter: Final = LiteLLMAnthropicMessagesAdapter()
+    _require_parseable_tool_calls(assembled)
     anthropic_response: Final = adapter.translate_openai_response_to_anthropic(response=assembled)
     source_response: Final = assemble_anthropic_sse_stream(source_chunks, through_upstream_error=True)
+    if source_response is not None:
+        _require_parseable_tool_calls(source_response)
     source_content: Final = (
         adapter.translate_openai_response_to_anthropic(response=source_response).get("content")
         if source_response is not None

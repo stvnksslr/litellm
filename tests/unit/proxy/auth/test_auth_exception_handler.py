@@ -1210,7 +1210,8 @@ async def test_auth_failure_row_keeps_spend_logs_metadata_header(
         {"model": "gpt-4o"},
     )
 
-    assert (raised.code, raised.type, raised.message) == (expected.code, expected.type, expected.message)
+    expected_message: Final = f"{expected.message} Requested model: gpt-4o" if error_kind == "budget" else expected.message
+    assert (raised.code, raised.type, raised.message) == (expected.code, expected.type, expected_message)
     assert is_invalid_virtual_key_error(raised) is expect_invalid_key
     assert row_metadata["status"] == "failure"
     assert row_metadata["spend_logs_metadata"] == {"marker": "rejected-call", "attempt": 2}

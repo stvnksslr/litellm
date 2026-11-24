@@ -20,6 +20,7 @@ from litellm.types.llms.openai import ChatCompletionToolParam
 from litellm.utils import get_prompt_cache_min_tokens, is_prompt_caching_valid_prompt
 
 from ..common_utils import VertexAIError, get_vertex_base_url
+from ..gemini.rejected_thought_signature_retry import names_rejected_thought_signature
 from ..vertex_llm_base import VertexBase, publisher_model_location
 from .known_cached_contents import KnownCachedContents, known_cached_contents
 from .transformation import (
@@ -77,6 +78,34 @@ def _sync_cache_client(timeout: float | httpx.Timeout | None) -> HTTPHandler:
 
 class _CachedContentsNotServedError(VertexAIError):
     pass
+
+
+class _CachedContentsCreationRejectedError(_CachedContentsNotServedError):
+    pass
+
+
+def _cache_creation_error(err: httpx.HTTPStatusError) -> VertexAIError:
+    # Google answers 400 when a model does not support explicit context caching or the content is below the cache
+    # minimum. That request still works uncached, while auth, quota and server errors must surface.
+    if err.response.status_code != 400 or names_rejected_thought_signature(400, err.response.text):
+        return VertexAIError(status_code=err.response.status_code, message=err.response.text)
+    _warn_cache_creation_rejected(err.response.status_code, err.response.text)
+    return _CachedContentsCreationRejectedError(status_code=err.response.status_code, message=err.response.text)
+
+
+def _raise_unless_rejected_for_the_model(err: httpx.HTTPStatusError) -> None:
+    error: Final = _cache_creation_error(err)
+    if not isinstance(error, _CachedContentsCreationRejectedError):
+        raise error
+
+
+def _warn_cache_creation_rejected(status_code: int, response_text: str) -> None:
+    verbose_logger.warning(
+        "Vertex AI context caching: cachedContents creation failed with status %d: %s. "
+        "Proceeding without explicit context caching.",
+        status_code,
+        response_text,
+    )
 
 
 def _record_cache_creation_tokens(logging_obj: Logging, created: _CreatedCachedContent) -> None:
@@ -537,8 +566,16 @@ class ContextCachingEndpoints(VertexBase):
             )
             response.raise_for_status()
         except httpx.HTTPStatusError as err:
-            error_code: Final = err.response.status_code
-            raise VertexAIError(status_code=error_code, message=err.response.text)
+            _raise_unless_rejected_for_the_model(err)
+            if tools is not None:
+                optional_params["tools"] = tools
+            if tool_choice is not None:
+                optional_params["tool_choice"] = tool_choice
+            return (
+                messages,
+                optional_params,
+                None,
+            )  # pyright: ignore[reportUnknownVariableType]  # optional_params is an unparameterized dict throughout this legacy module
         except httpx.TimeoutException:
             raise VertexAIError(status_code=408, message="Timeout error occurred.")
 
@@ -689,8 +726,7 @@ class ContextCachingEndpoints(VertexBase):
                 )
                 response.raise_for_status()
             except httpx.HTTPStatusError as err:
-                error_code: Final = err.response.status_code
-                raise VertexAIError(status_code=error_code, message=err.response.text)
+                raise _cache_creation_error(err)
             except httpx.TimeoutException:
                 raise VertexAIError(status_code=408, message="Timeout error occurred.")
 

@@ -3103,3 +3103,27 @@ async def test_caller_alias_target_matches_the_model_add_litellm_data_to_request
         )
         served: Final = caller_alias_target(requested_model, valid_token, router)
         assert served == dispatched["model"]
+
+
+def test_get_complete_model_list_no_default_models_with_access_group_models():
+    """no-default-models sentinel must not surface in the listing when the
+    team has access-group models. Regression for the staging report where
+    /v1/models returned [no-default-models] instead of the 39 access-group
+    models the key could actually call."""
+    from litellm.proxy.auth.model_checks import get_complete_model_list
+    from litellm.proxy._types import SpecialModelNames
+
+    ndm = SpecialModelNames.no_default_models.value
+    result = get_complete_model_list(
+        key_models=[ndm],  # leaked sentinel blocks team_models
+        team_models=[ndm, "ag-model-a", "ag-model-b"],  # access-group models
+        proxy_model_list=["proxy-model"],
+        user_model=None,
+        infer_model_from_keys=False,
+        llm_router=None,
+    )
+    assert ndm not in result
+    assert "proxy-model" not in result  # sentinel suppresses unrestricted fall-through
+    assert set(result) == {"ag-model-a", "ag-model-b"}
+
+

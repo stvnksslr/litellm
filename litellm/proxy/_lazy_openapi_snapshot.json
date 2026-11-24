@@ -992,6 +992,20 @@
               ],
               "title": "Description"
             },
+            "listed_model_names": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Listed Model Names"
+            },
             "mcp_tool_permissions": {
               "anyOf": [
                 {
@@ -1212,6 +1226,13 @@
               ],
               "title": "Description"
             },
+            "listed_model_names": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Listed Model Names",
+              "type": "array"
+            },
             "mcp_tool_permissions": {
               "anyOf": [
                 {
@@ -1250,6 +1271,7 @@
             "access_group_id",
             "access_group_name",
             "access_model_names",
+            "listed_model_names",
             "access_mcp_server_ids",
             "access_agent_ids",
             "assigned_team_ids",
@@ -1386,6 +1408,20 @@
                 }
               ],
               "title": "Description"
+            },
+            "listed_model_names": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Listed Model Names"
             },
             "mcp_tool_permissions": {
               "anyOf": [

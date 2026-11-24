@@ -26744,6 +26744,8 @@ export interface components {
             assigned_team_ids?: string[] | null;
             /** Description */
             description?: string | null;
+            /** Listed Model Names */
+            listed_model_names?: string[] | null;
             /** Mcp Tool Permissions */
             mcp_tool_permissions?: {
                 [key: string]: string[];
@@ -26816,6 +26818,8 @@ export interface components {
             created_by?: string | null;
             /** Description */
             description?: string | null;
+            /** Listed Model Names */
+            listed_model_names: string[];
             /** Mcp Tool Permissions */
             mcp_tool_permissions?: {
                 [key: string]: string[];
@@ -26859,6 +26863,8 @@ export interface components {
             assigned_team_ids?: string[] | null;
             /** Description */
             description?: string | null;
+            /** Listed Model Names */
+            listed_model_names?: string[] | null;
             /** Mcp Tool Permissions */
             mcp_tool_permissions?: {
                 [key: string]: string[];

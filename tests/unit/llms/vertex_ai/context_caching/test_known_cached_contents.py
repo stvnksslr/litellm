@@ -347,6 +347,19 @@ async def test_async_create_http_error_surfaces_its_status_code(endpoints: Conte
 
 
 @pytest.mark.asyncio
+async def test_async_create_rejected_for_the_model_degrades_to_an_uncached_request(endpoints: ContextCachingEndpoints):
+    client: Final = MagicMock(spec=AsyncHTTPHandler)
+    client.get = AsyncMock(return_value=_response({}))
+    request: Final = httpx.Request("POST", "https://vertex.test/v1/projects/p/locations/us/cachedContents")
+    rejected: Final = httpx.Response(
+        400, request=request, text="Model `gemini-4-argon` does not support explicit context caching."
+    )
+    client.post = AsyncMock(return_value=rejected)
+
+    assert await _async_call(endpoints, client) == (_messages(), {}, None)
+
+
+@pytest.mark.asyncio
 async def test_waiters_resolve_on_their_own_when_the_first_request_fails(endpoints: ContextCachingEndpoints):
     client: Final = MagicMock(spec=AsyncHTTPHandler)
 

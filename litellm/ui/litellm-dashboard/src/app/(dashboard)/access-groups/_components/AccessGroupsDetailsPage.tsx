@@ -144,6 +144,7 @@ export function AccessGroupDetail({ accessGroupId, onBack }: AccessGroupDetailPr
   }
 
   const models = accessGroup.access_model_names.map((id) => ({ id, name: null }));
+  const listedModels = accessGroup.listed_model_names.map((id) => ({ id, name: null }));
   const mcpServers = accessGroup.access_mcp_servers;
   const agents = accessGroup.access_agents;
   const skills = (accessGroup.access_skill_names ?? []).map((name) => ({ id: name, name: null }));
@@ -285,6 +286,11 @@ export function AccessGroupDetail({ accessGroupId, onBack }: AccessGroupDetailPr
                 {t("accessGroups.detail.tabs.models")}
                 <Badge variant="secondary">{models.length}</Badge>
               </TabsTrigger>
+              <TabsTrigger value="listed_models" className="flex-none gap-2 rounded-none px-4 py-2">
+                <LayersIcon className="size-4" />
+                Listed Models
+                <Badge variant="secondary">{listedModels.length}</Badge>
+              </TabsTrigger>
               <TabsTrigger value="mcp" className="flex-none gap-2 rounded-none px-4 py-2">
                 <ServerIcon className="size-4" />
                 {t("accessGroups.detail.tabs.mcpServers")}
@@ -308,6 +314,9 @@ export function AccessGroupDetail({ accessGroupId, onBack }: AccessGroupDetailPr
             </TabsList>
             <TabsContent value="models" className="pt-4">
               <ResourceList items={models} emptyMessage={t("accessGroups.detail.empty.models")} />
+            </TabsContent>
+            <TabsContent value="listed_models" className="pt-4">
+              <ResourceList items={listedModels} emptyMessage="No listed models configured for this group" />
             </TabsContent>
             <TabsContent value="mcp" className="pt-4">
               <ResourceList items={mcpServers} emptyMessage={t("accessGroups.detail.empty.mcpServers")} />

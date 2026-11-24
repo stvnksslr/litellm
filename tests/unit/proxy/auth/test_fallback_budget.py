@@ -6,6 +6,7 @@ import litellm
 import pytest
 
 from litellm import Router
+from litellm.router_api import RoutingContext
 from litellm.caching.dual_cache import DualCache
 from litellm.proxy._types import Litellm_EntityType, UserAPIKeyAuth
 from litellm.proxy.auth.fallback_budget import (
@@ -316,6 +317,33 @@ async def test_zero_cost_target_allowed_even_when_over_budget():
     """Refusing a free target would deny a request on spend some other model accrued."""
     token = _token(user_spend=1900.0, user_max_budget=50.0)
     assert await is_token_within_budget_for_model(model="free-model", valid_token=token, llm_router=_router()) is True
+
+
+@pytest.mark.asyncio
+async def test_budget_exempt_paid_target_allowed_even_when_over_budget():
+    exempt_model = {
+        **PAID_MODEL,
+        "model_name": "exempt-model",
+        "model_info": {"id": "exempt-id", "skip_budget_checks": True},
+    }
+    router = Router(model_list=[FREE_MODEL, PAID_MODEL, exempt_model])
+    token = _token(spend=100.0, max_budget=50.0)
+    assert await is_token_within_budget_for_model(model="exempt-model", valid_token=token, llm_router=router) is True
+    assert await is_token_within_budget_for_model(model="paid-model", valid_token=token, llm_router=router) is False
+
+
+@pytest.mark.asyncio
+async def test_budget_exempt_target_is_allowed_through_the_routing_context_the_router_passes():
+    exempt_model = {
+        **PAID_MODEL,
+        "model_name": "exempt-model",
+        "model_info": {"id": "exempt-id", "skip_budget_checks": True},
+    }
+    context: Final = RoutingContext(Router(model_list=[FREE_MODEL, PAID_MODEL, exempt_model]))
+    token: Final = _token(spend=100.0, max_budget=50.0)
+
+    assert await is_token_within_budget_for_model(model="exempt-model", valid_token=token, llm_router=context) is True
+    assert await is_token_within_budget_for_model(model="paid-model", valid_token=token, llm_router=context) is False
 
 
 @pytest.mark.asyncio

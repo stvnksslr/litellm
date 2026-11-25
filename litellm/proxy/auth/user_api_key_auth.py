@@ -2774,8 +2774,6 @@ async def user_api_key_auth_builder(
                         llm_router=llm_router,
                         request_body=request_data,
                         http_method=RouteChecks.get_request_method(request),
-                        team_id=valid_token.team_id,
-                        team_model_aliases=valid_token.team_model_aliases,
                     )
 
                     # Fetch project object for JWT path if project_id is set
@@ -3279,7 +3277,6 @@ async def validate_resolved_virtual_key(  # noqa: C901  # Preserve ordering of e
             llm_router=llm_router,
             request_body=request_data,
             http_method=RouteChecks.get_request_method(request),
-            team_id=valid_token.team_id,
         )
 
         # Check 3. Check if user is in their team budget
@@ -4386,7 +4383,6 @@ async def _should_skip_budget_checks(
         llm_router=llm_router,
         request_body=request_data,
         http_method=RouteChecks.get_request_method(request),
-        team_id=valid_token.team_id,
     )
 
 
@@ -5122,13 +5118,15 @@ async def _run_post_custom_auth_checks(
     # spend some other model accrued. The JWT and virtual-key paths already skip
     # every budget check for these; this path did not, so the same request could
     # be refused under custom auth and served under the other two.
-    skip_budget_checks: Final = request_skips_budget_checks(
-        route=route,
-        model=await budget_served_model(current_model, request_data, request, llm_router, valid_token),
-        llm_router=llm_router,
-        request_body=request_data,
-        http_method=RouteChecks.get_request_method(request),
-        team_id=valid_token.team_id,
+    skip_budget_checks: Final = is_video_retrieval_request(
+        route=route, http_method=RouteChecks.get_request_method(request)
+    ) or (
+        is_model_cost_zero(
+            model=await budget_served_model(current_model, request_data, request, llm_router, valid_token),
+            llm_router=llm_router,
+        )
+        if current_model is not None and llm_router is not None
+        else False
     )
 
     # 3. Check key-level model_max_budget

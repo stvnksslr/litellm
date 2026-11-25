@@ -65,7 +65,7 @@
     },
     "test_a_refusal_on_a_widened_route_family_reaches_the_client_like_the_auth_refusal[azure_pass_through]": {
       "python": {
-        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.00102, Max budget: 1.0\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
+        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.00102, Max budget: 1.0 Requested model: gpt-4o\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
         "counters": {
           "spend:team:team-at-max": 1.0
         },
@@ -76,7 +76,7 @@
             "error_type": "auth_error",
             "exception": [
               "BudgetExceededError",
-              "Budget has been exceeded! Team=team-at-max Current cost: 1.00102, Max budget: 1.0"
+              "Budget has been exceeded! Team=team-at-max Current cost: 1.00102, Max budget: 1.0 Requested model: gpt-4o"
             ],
             "identity": [
               "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -95,7 +95,7 @@
           }
         ],
         "headers": {
-          "content-length": "156",
+          "content-length": "180",
           "content-security-policy": "frame-ancestors 'none'",
           "content-type": "application/json",
           "x-content-type-options": "nosniff",
@@ -106,7 +106,7 @@
     },
     "test_a_refusal_on_a_widened_route_family_reaches_the_client_like_the_auth_refusal[batches]": {
       "python": {
-        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.48384, Max budget: 1.0\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
+        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.48384, Max budget: 1.0 Requested model: gpt-4o\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
         "counters": {
           "spend:team:team-at-max": 1.0
         },
@@ -117,7 +117,7 @@
             "error_type": "auth_error",
             "exception": [
               "BudgetExceededError",
-              "Budget has been exceeded! Team=team-at-max Current cost: 1.48384, Max budget: 1.0"
+              "Budget has been exceeded! Team=team-at-max Current cost: 1.48384, Max budget: 1.0 Requested model: gpt-4o"
             ],
             "identity": [
               "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -136,7 +136,7 @@
           }
         ],
         "headers": {
-          "content-length": "156",
+          "content-length": "180",
           "content-security-policy": "frame-ancestors 'none'",
           "content-type": "application/json",
           "x-content-type-options": "nosniff",
@@ -147,7 +147,7 @@
     },
     "test_a_refusal_on_a_widened_route_family_reaches_the_client_like_the_auth_refusal[gemini_pass_through]": {
       "python": {
-        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 2.4745600000000003, Max budget: 1.0\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
+        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 2.4745600000000003, Max budget: 1.0 Requested model: gemini-2.5-pro\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
         "counters": {
           "spend:team:team-at-max": 1.0000000000000002
         },
@@ -158,7 +158,7 @@
             "error_type": "auth_error",
             "exception": [
               "BudgetExceededError",
-              "Budget has been exceeded! Team=team-at-max Current cost: 2.4745600000000003, Max budget: 1.0"
+              "Budget has been exceeded! Team=team-at-max Current cost: 2.4745600000000003, Max budget: 1.0 Requested model: gemini-2.5-pro"
             ],
             "identity": [
               "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -176,7 +176,7 @@
           }
         ],
         "headers": {
-          "content-length": "167",
+          "content-length": "199",
           "content-security-policy": "frame-ancestors 'none'",
           "content-type": "application/json",
           "x-content-type-options": "nosniff",
@@ -187,7 +187,7 @@
     },
     "test_a_refusal_on_a_widened_route_family_reaches_the_client_like_the_auth_refusal[google]": {
       "python": {
-        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 2.4745600000000003, Max budget: 1.0\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
+        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 2.4745600000000003, Max budget: 1.0 Requested model: gemini-2.5-pro\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
         "counters": {
           "spend:team:team-at-max": 1.0000000000000002
         },
@@ -198,7 +198,7 @@
             "error_type": "auth_error",
             "exception": [
               "BudgetExceededError",
-              "Budget has been exceeded! Team=team-at-max Current cost: 2.4745600000000003, Max budget: 1.0"
+              "Budget has been exceeded! Team=team-at-max Current cost: 2.4745600000000003, Max budget: 1.0 Requested model: gemini-2.5-pro"
             ],
             "identity": [
               "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -215,7 +215,7 @@
           }
         ],
         "headers": {
-          "content-length": "167",
+          "content-length": "199",
           "content-security-policy": "frame-ancestors 'none'",
           "content-type": "application/json",
           "x-content-type-options": "nosniff",
@@ -226,7 +226,7 @@
     },
     "test_a_refusal_on_a_widened_route_family_reaches_the_client_like_the_auth_refusal[google_stream]": {
       "python": {
-        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 2.4745600000000003, Max budget: 1.0\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
+        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 2.4745600000000003, Max budget: 1.0 Requested model: gemini-2.5-pro\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
         "counters": {
           "spend:team:team-at-max": 1.0000000000000002
         },
@@ -237,7 +237,7 @@
             "error_type": "auth_error",
             "exception": [
               "BudgetExceededError",
-              "Budget has been exceeded! Team=team-at-max Current cost: 2.4745600000000003, Max budget: 1.0"
+              "Budget has been exceeded! Team=team-at-max Current cost: 2.4745600000000003, Max budget: 1.0 Requested model: gemini-2.5-pro"
             ],
             "identity": [
               "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -254,7 +254,7 @@
           }
         ],
         "headers": {
-          "content-length": "167",
+          "content-length": "199",
           "content-security-policy": "frame-ancestors 'none'",
           "content-type": "application/json",
           "x-content-type-options": "nosniff",
@@ -265,7 +265,7 @@
     },
     "test_a_refusal_on_a_widened_route_family_reaches_the_client_like_the_auth_refusal[image_edit]": {
       "python": {
-        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.00001, Max budget: 1.0\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
+        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.00001, Max budget: 1.0 Requested model: gpt-image-1\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
         "counters": {
           "spend:team:team-at-max": 1.0
         },
@@ -276,7 +276,7 @@
             "error_type": "auth_error",
             "exception": [
               "BudgetExceededError",
-              "Budget has been exceeded! Team=team-at-max Current cost: 1.00001, Max budget: 1.0"
+              "Budget has been exceeded! Team=team-at-max Current cost: 1.00001, Max budget: 1.0 Requested model: gpt-image-1"
             ],
             "identity": [
               "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -294,7 +294,7 @@
           }
         ],
         "headers": {
-          "content-length": "156",
+          "content-length": "185",
           "content-security-policy": "frame-ancestors 'none'",
           "content-type": "application/json",
           "x-content-type-options": "nosniff",
@@ -305,7 +305,7 @@
     },
     "test_a_refusal_on_a_widened_route_family_reaches_the_client_like_the_auth_refusal[images]": {
       "python": {
-        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.00001, Max budget: 1.0\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
+        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.00001, Max budget: 1.0 Requested model: gpt-image-1\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
         "counters": {
           "spend:team:team-at-max": 1.0
         },
@@ -316,7 +316,7 @@
             "error_type": "auth_error",
             "exception": [
               "BudgetExceededError",
-              "Budget has been exceeded! Team=team-at-max Current cost: 1.00001, Max budget: 1.0"
+              "Budget has been exceeded! Team=team-at-max Current cost: 1.00001, Max budget: 1.0 Requested model: gpt-image-1"
             ],
             "identity": [
               "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -333,7 +333,7 @@
           }
         ],
         "headers": {
-          "content-length": "156",
+          "content-length": "185",
           "content-security-policy": "frame-ancestors 'none'",
           "content-type": "application/json",
           "x-content-type-options": "nosniff",
@@ -344,7 +344,7 @@
     },
     "test_a_refusal_on_a_widened_route_family_reaches_the_client_like_the_auth_refusal[realtime_client_secrets]": {
       "python": {
-        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.193536, Max budget: 1.0\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
+        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.193536, Max budget: 1.0 Requested model: gpt-realtime\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
         "counters": {
           "spend:team:team-at-max": 1.0
         },
@@ -355,7 +355,7 @@
             "error_type": "auth_error",
             "exception": [
               "BudgetExceededError",
-              "Budget has been exceeded! Team=team-at-max Current cost: 1.193536, Max budget: 1.0"
+              "Budget has been exceeded! Team=team-at-max Current cost: 1.193536, Max budget: 1.0 Requested model: gpt-realtime"
             ],
             "identity": [
               "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -371,7 +371,7 @@
           }
         ],
         "headers": {
-          "content-length": "157",
+          "content-length": "187",
           "content-security-policy": "frame-ancestors 'none'",
           "content-type": "application/json",
           "x-content-type-options": "nosniff",
@@ -382,7 +382,7 @@
     },
     "test_a_refusal_on_a_widened_route_family_reaches_the_client_like_the_auth_refusal[realtime_translation_client_secrets]": {
       "python": {
-        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.193536, Max budget: 1.0\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
+        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.193536, Max budget: 1.0 Requested model: gpt-realtime\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
         "counters": {
           "spend:team:team-at-max": 1.0
         },
@@ -393,7 +393,7 @@
             "error_type": "auth_error",
             "exception": [
               "BudgetExceededError",
-              "Budget has been exceeded! Team=team-at-max Current cost: 1.193536, Max budget: 1.0"
+              "Budget has been exceeded! Team=team-at-max Current cost: 1.193536, Max budget: 1.0 Requested model: gpt-realtime"
             ],
             "identity": [
               "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -409,7 +409,7 @@
           }
         ],
         "headers": {
-          "content-length": "157",
+          "content-length": "187",
           "content-security-policy": "frame-ancestors 'none'",
           "content-type": "application/json",
           "x-content-type-options": "nosniff",
@@ -420,7 +420,7 @@
     },
     "test_a_refusal_on_a_widened_route_family_reaches_the_client_like_the_auth_refusal[rerank]": {
       "python": {
-        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.0000003, Max budget: 1.0\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
+        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.0000003, Max budget: 1.0 Requested model: llama-rank\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
         "counters": {
           "spend:team:team-at-max": 1.0
         },
@@ -431,7 +431,7 @@
             "error_type": "auth_error",
             "exception": [
               "BudgetExceededError",
-              "Budget has been exceeded! Team=team-at-max Current cost: 1.0000003, Max budget: 1.0"
+              "Budget has been exceeded! Team=team-at-max Current cost: 1.0000003, Max budget: 1.0 Requested model: llama-rank"
             ],
             "identity": [
               "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -449,7 +449,7 @@
           }
         ],
         "headers": {
-          "content-length": "158",
+          "content-length": "186",
           "content-security-policy": "frame-ancestors 'none'",
           "content-type": "application/json",
           "x-content-type-options": "nosniff",
@@ -460,7 +460,7 @@
     },
     "test_a_refusal_on_a_widened_route_family_reaches_the_client_like_the_auth_refusal[speech]": {
       "python": {
-        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.1638406, Max budget: 1.0\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
+        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.1638406, Max budget: 1.0 Requested model: gpt-4o-mini-tts\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
         "counters": {
           "spend:team:team-at-max": 0.9999999999999999
         },
@@ -471,7 +471,7 @@
             "error_type": "auth_error",
             "exception": [
               "BudgetExceededError",
-              "Budget has been exceeded! Team=team-at-max Current cost: 1.1638406, Max budget: 1.0"
+              "Budget has been exceeded! Team=team-at-max Current cost: 1.1638406, Max budget: 1.0 Requested model: gpt-4o-mini-tts"
             ],
             "identity": [
               "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -489,7 +489,7 @@
           }
         ],
         "headers": {
-          "content-length": "158",
+          "content-length": "191",
           "content-security-policy": "frame-ancestors 'none'",
           "content-type": "application/json",
           "x-content-type-options": "nosniff",
@@ -500,7 +500,7 @@
     },
     "test_a_refusal_on_a_widened_route_family_reaches_the_client_like_the_auth_refusal[transcriptions]": {
       "python": {
-        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.06, Max budget: 1.0\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
+        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.06, Max budget: 1.0 Requested model: gpt-4o-transcribe\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
         "counters": {
           "spend:team:team-at-max": 1.0
         },
@@ -511,7 +511,7 @@
             "error_type": "auth_error",
             "exception": [
               "BudgetExceededError",
-              "Budget has been exceeded! Team=team-at-max Current cost: 1.06, Max budget: 1.0"
+              "Budget has been exceeded! Team=team-at-max Current cost: 1.06, Max budget: 1.0 Requested model: gpt-4o-transcribe"
             ],
             "identity": [
               "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -528,7 +528,7 @@
           }
         ],
         "headers": {
-          "content-length": "153",
+          "content-length": "188",
           "content-security-policy": "frame-ancestors 'none'",
           "content-type": "application/json",
           "x-content-type-options": "nosniff",
@@ -539,7 +539,7 @@
     },
     "test_a_refusal_on_a_widened_route_family_reaches_the_client_like_the_auth_refusal[vertex_pass_through]": {
       "python": {
-        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 2.4745600000000003, Max budget: 1.0\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
+        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 2.4745600000000003, Max budget: 1.0 Requested model: gemini-2.5-pro\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
         "counters": {
           "spend:team:team-at-max": 1.0000000000000002
         },
@@ -550,7 +550,7 @@
             "error_type": "auth_error",
             "exception": [
               "BudgetExceededError",
-              "Budget has been exceeded! Team=team-at-max Current cost: 2.4745600000000003, Max budget: 1.0"
+              "Budget has been exceeded! Team=team-at-max Current cost: 2.4745600000000003, Max budget: 1.0 Requested model: gemini-2.5-pro"
             ],
             "identity": [
               "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -567,7 +567,7 @@
           }
         ],
         "headers": {
-          "content-length": "167",
+          "content-length": "199",
           "content-security-policy": "frame-ancestors 'none'",
           "content-type": "application/json",
           "x-content-type-options": "nosniff",
@@ -612,7 +612,7 @@
     },
     "test_a_reservation_refusal_reaches_the_client_like_the_auth_refusal[anthropic_pass_through]": {
       "python": {
-        "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.001524, Max budget: 1.0\",\"litellm_error_type\":\"budget_exceeded\"}}",
+        "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.001524, Max budget: 1.0 Requested model: claude-sonnet-4-5\",\"litellm_error_type\":\"budget_exceeded\"}}",
         "counters": {
           "spend:team:team-at-max": 1.0
         },
@@ -623,7 +623,7 @@
             "error_type": "auth_error",
             "exception": [
               "BudgetExceededError",
-              "Budget has been exceeded! Team=team-at-max Current cost: 1.001524, Max budget: 1.0"
+              "Budget has been exceeded! Team=team-at-max Current cost: 1.001524, Max budget: 1.0 Requested model: claude-sonnet-4-5"
             ],
             "identity": [
               "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -642,7 +642,7 @@
           }
         ],
         "headers": {
-          "content-length": "191",
+          "content-length": "226",
           "content-security-policy": "frame-ancestors 'none'",
           "content-type": "application/json",
           "x-content-type-options": "nosniff",
@@ -653,7 +653,7 @@
     },
     "test_a_reservation_refusal_reaches_the_client_like_the_auth_refusal[batches]": {
       "python": {
-        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.48384, Max budget: 1.0\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
+        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.48384, Max budget: 1.0 Requested model: gpt-4o\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
         "counters": {
           "spend:team:team-at-max": 1.0
         },
@@ -664,7 +664,7 @@
             "error_type": "auth_error",
             "exception": [
               "BudgetExceededError",
-              "Budget has been exceeded! Team=team-at-max Current cost: 1.48384, Max budget: 1.0"
+              "Budget has been exceeded! Team=team-at-max Current cost: 1.48384, Max budget: 1.0 Requested model: gpt-4o"
             ],
             "identity": [
               "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -683,7 +683,7 @@
           }
         ],
         "headers": {
-          "content-length": "156",
+          "content-length": "180",
           "content-security-policy": "frame-ancestors 'none'",
           "content-type": "application/json",
           "x-content-type-options": "nosniff",
@@ -694,7 +694,7 @@
     },
     "test_a_reservation_refusal_reaches_the_client_like_the_auth_refusal[chat_completions]": {
       "python": {
-        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.00102, Max budget: 1.0\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
+        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.00102, Max budget: 1.0 Requested model: gpt-4o\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
         "counters": {
           "spend:team:team-at-max": 1.0
         },
@@ -705,7 +705,7 @@
             "error_type": "auth_error",
             "exception": [
               "BudgetExceededError",
-              "Budget has been exceeded! Team=team-at-max Current cost: 1.00102, Max budget: 1.0"
+              "Budget has been exceeded! Team=team-at-max Current cost: 1.00102, Max budget: 1.0 Requested model: gpt-4o"
             ],
             "identity": [
               "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -723,7 +723,7 @@
           }
         ],
         "headers": {
-          "content-length": "156",
+          "content-length": "180",
           "content-security-policy": "frame-ancestors 'none'",
           "content-type": "application/json",
           "x-content-type-options": "nosniff",
@@ -734,7 +734,7 @@
     },
     "test_a_reservation_refusal_reaches_the_client_like_the_auth_refusal[messages]": {
       "python": {
-        "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.001524, Max budget: 1.0\",\"litellm_error_type\":\"budget_exceeded\"}}",
+        "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.001524, Max budget: 1.0 Requested model: claude-sonnet-4-5\",\"litellm_error_type\":\"budget_exceeded\"}}",
         "counters": {
           "spend:team:team-at-max": 1.0
         },
@@ -745,7 +745,7 @@
             "error_type": "auth_error",
             "exception": [
               "BudgetExceededError",
-              "Budget has been exceeded! Team=team-at-max Current cost: 1.001524, Max budget: 1.0"
+              "Budget has been exceeded! Team=team-at-max Current cost: 1.001524, Max budget: 1.0 Requested model: claude-sonnet-4-5"
             ],
             "identity": [
               "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -763,7 +763,7 @@
           }
         ],
         "headers": {
-          "content-length": "191",
+          "content-length": "226",
           "content-security-policy": "frame-ancestors 'none'",
           "content-type": "application/json",
           "x-content-type-options": "nosniff",
@@ -774,7 +774,7 @@
     },
     "test_a_reservation_refusal_reaches_the_client_like_the_auth_refusal[responses]": {
       "python": {
-        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.0010025, Max budget: 1.0\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
+        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.0010025, Max budget: 1.0 Requested model: gpt-4o\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
         "counters": {
           "spend:team:team-at-max": 1.0
         },
@@ -785,7 +785,7 @@
             "error_type": "auth_error",
             "exception": [
               "BudgetExceededError",
-              "Budget has been exceeded! Team=team-at-max Current cost: 1.0010025, Max budget: 1.0"
+              "Budget has been exceeded! Team=team-at-max Current cost: 1.0010025, Max budget: 1.0 Requested model: gpt-4o"
             ],
             "identity": [
               "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -803,7 +803,7 @@
           }
         ],
         "headers": {
-          "content-length": "158",
+          "content-length": "182",
           "content-security-policy": "frame-ancestors 'none'",
           "content-type": "application/json",
           "x-content-type-options": "nosniff",
@@ -814,7 +814,7 @@
     },
     "test_a_reservation_refusal_reaches_the_client_like_the_auth_refusal[text_completions]": {
       "python": {
-        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.0000215, Max budget: 1.0\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
+        "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.0000215, Max budget: 1.0 Requested model: gpt-3.5-turbo-instruct\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"422\"}}",
         "counters": {
           "spend:team:team-at-max": 0.9999999999999999
         },
@@ -825,7 +825,7 @@
             "error_type": "auth_error",
             "exception": [
               "BudgetExceededError",
-              "Budget has been exceeded! Team=team-at-max Current cost: 1.0000215, Max budget: 1.0"
+              "Budget has been exceeded! Team=team-at-max Current cost: 1.0000215, Max budget: 1.0 Requested model: gpt-3.5-turbo-instruct"
             ],
             "identity": [
               "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -843,7 +843,7 @@
           }
         ],
         "headers": {
-          "content-length": "158",
+          "content-length": "198",
           "content-security-policy": "frame-ancestors 'none'",
           "content-type": "application/json",
           "x-content-type-options": "nosniff",
@@ -999,7 +999,7 @@
     "test_a_runtime_change_to_the_budget_exceeded_status_code_reaches_the_next_refusal_like_python[anthropic_pass_through]": {
       "python": {
         "402": {
-          "body": "{\"type\":\"error\",\"error\":{\"type\":\"billing_error\",\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.001524, Max budget: 1.0\",\"litellm_error_type\":\"budget_exceeded\"}}",
+          "body": "{\"type\":\"error\",\"error\":{\"type\":\"billing_error\",\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.001524, Max budget: 1.0 Requested model: claude-sonnet-4-5\",\"litellm_error_type\":\"budget_exceeded\"}}",
           "counters": {
             "spend:team:team-at-max": 1.0
           },
@@ -1010,7 +1010,7 @@
               "error_type": "auth_error",
               "exception": [
                 "BudgetExceededError",
-                "Budget has been exceeded! Team=team-at-max Current cost: 1.001524, Max budget: 1.0"
+                "Budget has been exceeded! Team=team-at-max Current cost: 1.001524, Max budget: 1.0 Requested model: claude-sonnet-4-5"
               ],
               "identity": [
                 "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -1029,7 +1029,7 @@
             }
           ],
           "headers": {
-            "content-length": "183",
+            "content-length": "218",
             "content-security-policy": "frame-ancestors 'none'",
             "content-type": "application/json",
             "x-content-type-options": "nosniff",
@@ -1038,7 +1038,7 @@
           "status": 402
         },
         "429": {
-          "body": "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.001524, Max budget: 1.0\",\"litellm_error_type\":\"budget_exceeded\"}}",
+          "body": "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.001524, Max budget: 1.0 Requested model: claude-sonnet-4-5\",\"litellm_error_type\":\"budget_exceeded\"}}",
           "counters": {
             "spend:team:team-at-max": 1.0
           },
@@ -1049,7 +1049,7 @@
               "error_type": "auth_error",
               "exception": [
                 "BudgetExceededError",
-                "Budget has been exceeded! Team=team-at-max Current cost: 1.001524, Max budget: 1.0"
+                "Budget has been exceeded! Team=team-at-max Current cost: 1.001524, Max budget: 1.0 Requested model: claude-sonnet-4-5"
               ],
               "identity": [
                 "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -1068,7 +1068,7 @@
             }
           ],
           "headers": {
-            "content-length": "186",
+            "content-length": "221",
             "content-security-policy": "frame-ancestors 'none'",
             "content-type": "application/json",
             "x-content-type-options": "nosniff",
@@ -1081,7 +1081,7 @@
     "test_a_runtime_change_to_the_budget_exceeded_status_code_reaches_the_next_refusal_like_python[batches]": {
       "python": {
         "402": {
-          "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.48384, Max budget: 1.0\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"402\"}}",
+          "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.48384, Max budget: 1.0 Requested model: gpt-4o\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"402\"}}",
           "counters": {
             "spend:team:team-at-max": 1.0
           },
@@ -1092,7 +1092,7 @@
               "error_type": "auth_error",
               "exception": [
                 "BudgetExceededError",
-                "Budget has been exceeded! Team=team-at-max Current cost: 1.48384, Max budget: 1.0"
+                "Budget has been exceeded! Team=team-at-max Current cost: 1.48384, Max budget: 1.0 Requested model: gpt-4o"
               ],
               "identity": [
                 "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -1111,7 +1111,7 @@
             }
           ],
           "headers": {
-            "content-length": "156",
+            "content-length": "180",
             "content-security-policy": "frame-ancestors 'none'",
             "content-type": "application/json",
             "x-content-type-options": "nosniff",
@@ -1120,7 +1120,7 @@
           "status": 402
         },
         "429": {
-          "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.48384, Max budget: 1.0\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"429\"}}",
+          "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.48384, Max budget: 1.0 Requested model: gpt-4o\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"429\"}}",
           "counters": {
             "spend:team:team-at-max": 1.0
           },
@@ -1131,7 +1131,7 @@
               "error_type": "auth_error",
               "exception": [
                 "BudgetExceededError",
-                "Budget has been exceeded! Team=team-at-max Current cost: 1.48384, Max budget: 1.0"
+                "Budget has been exceeded! Team=team-at-max Current cost: 1.48384, Max budget: 1.0 Requested model: gpt-4o"
               ],
               "identity": [
                 "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -1150,7 +1150,7 @@
             }
           ],
           "headers": {
-            "content-length": "156",
+            "content-length": "180",
             "content-security-policy": "frame-ancestors 'none'",
             "content-type": "application/json",
             "x-content-type-options": "nosniff",
@@ -1163,7 +1163,7 @@
     "test_a_runtime_change_to_the_budget_exceeded_status_code_reaches_the_next_refusal_like_python[chat_completions]": {
       "python": {
         "402": {
-          "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.00102, Max budget: 1.0\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"402\"}}",
+          "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.00102, Max budget: 1.0 Requested model: gpt-4o\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"402\"}}",
           "counters": {
             "spend:team:team-at-max": 1.0
           },
@@ -1174,7 +1174,7 @@
               "error_type": "auth_error",
               "exception": [
                 "BudgetExceededError",
-                "Budget has been exceeded! Team=team-at-max Current cost: 1.00102, Max budget: 1.0"
+                "Budget has been exceeded! Team=team-at-max Current cost: 1.00102, Max budget: 1.0 Requested model: gpt-4o"
               ],
               "identity": [
                 "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -1192,7 +1192,7 @@
             }
           ],
           "headers": {
-            "content-length": "156",
+            "content-length": "180",
             "content-security-policy": "frame-ancestors 'none'",
             "content-type": "application/json",
             "x-content-type-options": "nosniff",
@@ -1201,7 +1201,7 @@
           "status": 402
         },
         "429": {
-          "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.00102, Max budget: 1.0\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"429\"}}",
+          "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.00102, Max budget: 1.0 Requested model: gpt-4o\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"429\"}}",
           "counters": {
             "spend:team:team-at-max": 1.0
           },
@@ -1212,7 +1212,7 @@
               "error_type": "auth_error",
               "exception": [
                 "BudgetExceededError",
-                "Budget has been exceeded! Team=team-at-max Current cost: 1.00102, Max budget: 1.0"
+                "Budget has been exceeded! Team=team-at-max Current cost: 1.00102, Max budget: 1.0 Requested model: gpt-4o"
               ],
               "identity": [
                 "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -1230,7 +1230,7 @@
             }
           ],
           "headers": {
-            "content-length": "156",
+            "content-length": "180",
             "content-security-policy": "frame-ancestors 'none'",
             "content-type": "application/json",
             "x-content-type-options": "nosniff",
@@ -1243,7 +1243,7 @@
     "test_a_runtime_change_to_the_budget_exceeded_status_code_reaches_the_next_refusal_like_python[messages]": {
       "python": {
         "402": {
-          "body": "{\"type\":\"error\",\"error\":{\"type\":\"billing_error\",\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.001524, Max budget: 1.0\",\"litellm_error_type\":\"budget_exceeded\"}}",
+          "body": "{\"type\":\"error\",\"error\":{\"type\":\"billing_error\",\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.001524, Max budget: 1.0 Requested model: claude-sonnet-4-5\",\"litellm_error_type\":\"budget_exceeded\"}}",
           "counters": {
             "spend:team:team-at-max": 1.0
           },
@@ -1254,7 +1254,7 @@
               "error_type": "auth_error",
               "exception": [
                 "BudgetExceededError",
-                "Budget has been exceeded! Team=team-at-max Current cost: 1.001524, Max budget: 1.0"
+                "Budget has been exceeded! Team=team-at-max Current cost: 1.001524, Max budget: 1.0 Requested model: claude-sonnet-4-5"
               ],
               "identity": [
                 "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -1272,7 +1272,7 @@
             }
           ],
           "headers": {
-            "content-length": "183",
+            "content-length": "218",
             "content-security-policy": "frame-ancestors 'none'",
             "content-type": "application/json",
             "x-content-type-options": "nosniff",
@@ -1281,7 +1281,7 @@
           "status": 402
         },
         "429": {
-          "body": "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.001524, Max budget: 1.0\",\"litellm_error_type\":\"budget_exceeded\"}}",
+          "body": "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.001524, Max budget: 1.0 Requested model: claude-sonnet-4-5\",\"litellm_error_type\":\"budget_exceeded\"}}",
           "counters": {
             "spend:team:team-at-max": 1.0
           },
@@ -1292,7 +1292,7 @@
               "error_type": "auth_error",
               "exception": [
                 "BudgetExceededError",
-                "Budget has been exceeded! Team=team-at-max Current cost: 1.001524, Max budget: 1.0"
+                "Budget has been exceeded! Team=team-at-max Current cost: 1.001524, Max budget: 1.0 Requested model: claude-sonnet-4-5"
               ],
               "identity": [
                 "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -1310,7 +1310,7 @@
             }
           ],
           "headers": {
-            "content-length": "186",
+            "content-length": "221",
             "content-security-policy": "frame-ancestors 'none'",
             "content-type": "application/json",
             "x-content-type-options": "nosniff",
@@ -1323,7 +1323,7 @@
     "test_a_runtime_change_to_the_budget_exceeded_status_code_reaches_the_next_refusal_like_python[responses]": {
       "python": {
         "402": {
-          "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.0010025, Max budget: 1.0\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"402\"}}",
+          "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.0010025, Max budget: 1.0 Requested model: gpt-4o\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"402\"}}",
           "counters": {
             "spend:team:team-at-max": 1.0
           },
@@ -1334,7 +1334,7 @@
               "error_type": "auth_error",
               "exception": [
                 "BudgetExceededError",
-                "Budget has been exceeded! Team=team-at-max Current cost: 1.0010025, Max budget: 1.0"
+                "Budget has been exceeded! Team=team-at-max Current cost: 1.0010025, Max budget: 1.0 Requested model: gpt-4o"
               ],
               "identity": [
                 "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -1352,7 +1352,7 @@
             }
           ],
           "headers": {
-            "content-length": "158",
+            "content-length": "182",
             "content-security-policy": "frame-ancestors 'none'",
             "content-type": "application/json",
             "x-content-type-options": "nosniff",
@@ -1361,7 +1361,7 @@
           "status": 402
         },
         "429": {
-          "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.0010025, Max budget: 1.0\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"429\"}}",
+          "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.0010025, Max budget: 1.0 Requested model: gpt-4o\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"429\"}}",
           "counters": {
             "spend:team:team-at-max": 1.0
           },
@@ -1372,7 +1372,7 @@
               "error_type": "auth_error",
               "exception": [
                 "BudgetExceededError",
-                "Budget has been exceeded! Team=team-at-max Current cost: 1.0010025, Max budget: 1.0"
+                "Budget has been exceeded! Team=team-at-max Current cost: 1.0010025, Max budget: 1.0 Requested model: gpt-4o"
               ],
               "identity": [
                 "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -1390,7 +1390,7 @@
             }
           ],
           "headers": {
-            "content-length": "158",
+            "content-length": "182",
             "content-security-policy": "frame-ancestors 'none'",
             "content-type": "application/json",
             "x-content-type-options": "nosniff",
@@ -1403,7 +1403,7 @@
     "test_a_runtime_change_to_the_budget_exceeded_status_code_reaches_the_next_refusal_like_python[text_completions]": {
       "python": {
         "402": {
-          "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.0000215, Max budget: 1.0\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"402\"}}",
+          "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.0000215, Max budget: 1.0 Requested model: gpt-3.5-turbo-instruct\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"402\"}}",
           "counters": {
             "spend:team:team-at-max": 0.9999999999999999
           },
@@ -1414,7 +1414,7 @@
               "error_type": "auth_error",
               "exception": [
                 "BudgetExceededError",
-                "Budget has been exceeded! Team=team-at-max Current cost: 1.0000215, Max budget: 1.0"
+                "Budget has been exceeded! Team=team-at-max Current cost: 1.0000215, Max budget: 1.0 Requested model: gpt-3.5-turbo-instruct"
               ],
               "identity": [
                 "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -1432,7 +1432,7 @@
             }
           ],
           "headers": {
-            "content-length": "158",
+            "content-length": "198",
             "content-security-policy": "frame-ancestors 'none'",
             "content-type": "application/json",
             "x-content-type-options": "nosniff",
@@ -1441,7 +1441,7 @@
           "status": 402
         },
         "429": {
-          "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.0000215, Max budget: 1.0\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"429\"}}",
+          "body": "{\"error\":{\"message\":\"Budget has been exceeded! Team=team-at-max Current cost: 1.0000215, Max budget: 1.0 Requested model: gpt-3.5-turbo-instruct\",\"type\":\"budget_exceeded\",\"param\":null,\"code\":\"429\"}}",
           "counters": {
             "spend:team:team-at-max": 0.9999999999999999
           },
@@ -1452,7 +1452,7 @@
               "error_type": "auth_error",
               "exception": [
                 "BudgetExceededError",
-                "Budget has been exceeded! Team=team-at-max Current cost: 1.0000215, Max budget: 1.0"
+                "Budget has been exceeded! Team=team-at-max Current cost: 1.0000215, Max budget: 1.0 Requested model: gpt-3.5-turbo-instruct"
               ],
               "identity": [
                 "e84cc138c079b49eb8f8805f4303066abe817c7e85b28c67b9ffc5ff439402bf",
@@ -1470,7 +1470,7 @@
             }
           ],
           "headers": {
-            "content-length": "158",
+            "content-length": "198",
             "content-security-policy": "frame-ancestors 'none'",
             "content-type": "application/json",
             "x-content-type-options": "nosniff",
@@ -1941,7 +1941,7 @@
       "python": [
         "budget_exceeded",
         "422",
-        "Budget has been exceeded! Key=key Current cost: 2.0, Max budget: 1.0",
+        "Budget has been exceeded! Key=key Current cost: 2.0, Max budget: 1.0 Requested model: gpt-4o",
         null
       ]
     },

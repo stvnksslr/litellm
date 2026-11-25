@@ -15,6 +15,7 @@ import pytest
 
 from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler, HTTPHandler
 from litellm.llms.openai_like.chat.handler import make_call, make_sync_call
+from litellm.types.utils import ModelResponseStream
 
 _UNICODE_TEXTS: Final = (
     "The symbol µ represents micro",
@@ -31,6 +32,11 @@ def _utf8_stream_transport(text: str) -> httpx.MockTransport:
     chunk: Final = {"choices": [{"index": 0, "delta": {"content": text}}]}
     body: Final = f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n".encode()
     return httpx.MockTransport(lambda request: httpx.Response(200, stream=httpx.ByteStream(body)))
+
+
+def _streamed_text(chunks: list[object]) -> str:
+    deltas: Final = tuple(chunk.choices[0].delta for chunk in chunks if isinstance(chunk, ModelResponseStream))
+    return "".join(delta.content or "" for delta in deltas)
 
 
 def _call_args() -> dict[str, object]:
@@ -50,7 +56,7 @@ def test_utf8_streaming_sync(text: str) -> None:
         client=HTTPHandler(client=httpx.Client(transport=_utf8_stream_transport(text))), **_call_args()
     )
 
-    assert "".join(chunk["text"] for chunk in completion_stream) == text
+    assert _streamed_text(list(completion_stream)) == text
 
 
 @pytest.mark.asyncio
@@ -60,4 +66,4 @@ async def test_utf8_streaming_async(text: str) -> None:
         client=AsyncHTTPHandler(transport=_utf8_stream_transport(text)), **_call_args()
     )
 
-    assert "".join([chunk["text"] async for chunk in completion_stream]) == text
+    assert _streamed_text([chunk async for chunk in completion_stream]) == text

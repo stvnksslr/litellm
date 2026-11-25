@@ -3280,7 +3280,6 @@ async def validate_resolved_virtual_key(  # noqa: C901  # Preserve ordering of e
             request_body=request_data,
             http_method=RouteChecks.get_request_method(request),
             team_id=valid_token.team_id,
-            team_model_aliases=valid_token.team_model_aliases,
         )
 
         # Check 3. Check if user is in their team budget
@@ -4388,7 +4387,6 @@ async def _should_skip_budget_checks(
         request_body=request_data,
         http_method=RouteChecks.get_request_method(request),
         team_id=valid_token.team_id,
-        team_model_aliases=valid_token.team_model_aliases,
     )
 
 
@@ -5131,7 +5129,6 @@ async def _run_post_custom_auth_checks(
         request_body=request_data,
         http_method=RouteChecks.get_request_method(request),
         team_id=valid_token.team_id,
-        team_model_aliases=valid_token.team_model_aliases,
     )
 
     # 3. Check key-level model_max_budget
